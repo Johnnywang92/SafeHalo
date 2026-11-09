@@ -64,6 +64,35 @@ class AlertNotifier:
 
         return success
 
+    def send_intruder_alarm(self, room_name: str = "家中客厅", details: str = "离家布防模式下探测到人体大幅走动") -> bool:
+        """
+        发送高优先级防盗入侵警报至家属手机
+        """
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        title = f"🛡️【防盗告警】SafeHalo 检测到非法人员入侵！"
+        content = (
+            f"### 房屋安防入侵警告\n\n"
+            f"- **告警位置**: {room_name}\n"
+            f"- **发现时间**: {now_str}\n"
+            f"- **安防状态**: 离家布防中 (家中本应无人)\n"
+            f"- **触发详情**: {details} (已自动排除地面宠物)\n\n"
+            f"> 警告: 屋内检测到明确的人体反射信号，请注意核实家中安全或查看外部监控！"
+        )
+
+        success = False
+        if self.pushplus_token:
+            success = self._send_pushplus(title, content) or success
+        if self.serverchan_key:
+            success = self._send_serverchan(title, content) or success
+        if self.webhook_url:
+            success = self._send_webhook(title, content) or success
+
+        if not (self.pushplus_token or self.serverchan_key or self.webhook_url):
+            print(f"[Notifier 本地模拟防盗推送] {title}\n{content}")
+            return True
+
+        return success
+
     def _send_pushplus(self, title: str, markdown_content: str) -> bool:
         url = "http://www.pushplus.plus/send"
         payload = {
