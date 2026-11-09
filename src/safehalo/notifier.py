@@ -1,0 +1,115 @@
+"""
+SafeHalo 移动端通知与告警模块 (notifier.py)
+支持以下通道向用户手机推送实时告警与状态:
+1. 微信服务号 / 模板消息推送 (PushPlus / Server酱) - 免装 App，全家微信即时弹窗
+2. 自定义 Webhook (支持飞书/企业微信/钉钉群机器人)
+3. 短信 / 语音外呼 Webhook 接口 (如阿里云、腾讯云 SMS)
+"""
+
+import json
+import urllib.request
+import urllib.error
+from datetime import datetime
+from typing import Optional
+
+class AlertNotifier:
+    def __init__(
+        self,
+        pushplus_token: Optional[str] = None,
+        serverchan_key: Optional[str] = None,
+        webhook_url: Optional[str] = None,
+    ):
+        """
+        :param pushplus_token: PushPlus (微信关注推送加公众号即可推送，免费支持多人接收)
+        :param serverchan_key: Server酱 SendKey (微信推送)
+        :param webhook_url: 企业微信/飞书/钉钉机器人 Webhook 地址
+        """
+        self.pushplus_token = pushplus_token
+        self.serverchan_key = serverchan_key
+        self.webhook_url = webhook_url
+
+    def send_fall_alarm(self, room_name: str = "老人卧室", confidence: str = "高", details: str = "") -> bool:
+        """
+        发送高优先级跌倒警报至家属手机
+        """
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        title = f"🚨【紧急预警】SafeHalo 检测到疑似跌倒！"
+        content = (
+            f"### 紧急安全事件通知\n\n"
+            f"- **监测位置**: {room_name}\n"
+            f"- **发生时间**: {now_str}\n"
+            f"- **预警级别**: 红色紧急（检测到剧烈冲击并持续倒地静止）\n"
+            f"- **置信度**: {confidence}\n"
+            f"- **附带信息**: {details}\n\n"
+            f"> 请立即通过家中监控或电话确认老人安全！如无法取得联系，请尽快前往或联系邻居协助。"
+        )
+
+        success = False
+
+        # 1. PushPlus 微信推送 (推荐，微信直接弹服务通知)
+        if self.pushplus_token:
+            success = self._send_pushplus(title, content) or success
+
+        # 2. Server酱 微信推送
+        if self.serverchan_key:
+            success = self._send_serverchan(title, content) or success
+
+        # 3. 群机器人 Webhook
+        if self.webhook_url:
+            success = self._send_webhook(title, content) or success
+
+        if not (self.pushplus_token or self.serverchan_key or self.webhook_url):
+            print(f"[Notifier 本地模拟推送] {title}\n{content}")
+            return True
+
+        return success
+
+    def _send_pushplus(self, title: str, markdown_content: str) -> bool:
+        url = "http://www.pushplus.plus/send"
+        payload = {
+            "token": self.pushplus_token,
+            "title": title,
+            "content": markdown_content,
+            "template": "markdown",
+        }
+        return self._http_post_json(url, payload)
+
+    def _send_serverchan(self, title: str, markdown_content: str) -> bool:
+        url = f"https://sctapi.ftqq.com/{self.serverchan_key}.send"
+        payload = {
+            "title": title,
+            "desp": markdown_content,
+        }
+        return self._http_post_json(url, payload)
+
+    def _send_webhook(self, title: str, markdown_content: str) -> bool:
+        # 兼容企业微信/飞书/钉钉的通用 Markdown 格式
+        payload = {
+            "msgtype": "markdown",
+            "markdown": {
+                "content": f"## {title}\n{markdown_content}"
+            }
+        }
+        return self._http_post_json(self.webhook_url, payload)
+
+    def _http_post_json(self, url: str, data_dict: dict) -> bool:
+        try:
+            req_data = json.dumps(data_dict).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=req_data,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=5) as response:
+                res = response.read().decode("utf-8")
+                print(f"[Notifier] 推送响应: {res[:100]}")
+                return True
+        except Exception as e:
+            print(f"[Notifier 失败] 请求 {url} 出错: {e}")
+            return False
+
+if __name__ == "__main__":
+    # 测试用例 (本地模拟推送)
+    notifier = AlertNotifier()
+    notifier.send_fall_alarm(room_name="主卧卫生间", details="持续静止 8 秒未见活动")

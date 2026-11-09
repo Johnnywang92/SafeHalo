@@ -25,6 +25,7 @@ from datetime import datetime
 from src.safehalo.router_csi_engine import RouterCSIEngine
 from src.safehalo.detector import HumanState
 from src.safehalo.feature_extractor import CSIFeatures
+from src.safehalo.notifier import AlertNotifier
 
 # 控制台彩色输出
 COLOR_RESET = "\033[0m"
@@ -61,14 +62,25 @@ def on_state_change(old_state: HumanState, new_state: HumanState, features: CSIF
     now_str = datetime.fromtimestamp(features.timestamp).strftime("%H:%M:%S.%f")[:-3]
     print(f"\n{COLOR_BOLD}[{now_str}] 状态切换: {old_state.value} -> {color}{new_state.value} ({desc}){COLOR_RESET}")
 
-def on_fall_alarm(features: CSIFeatures):
-    now_str = datetime.fromtimestamp(features.timestamp).strftime("%H:%M:%S.%f")[:-3]
-    print(f"\n{'='*60}")
-    print(f"{COLOR_RED}{COLOR_BOLD}[{now_str}] 🚨 严重告警：检测到跌倒且长时间未见起身活动！{COLOR_RESET}")
-    print(f"触发参数: 方差={features.mean_variance:.6f}, 峰均比={features.spike_ratio:.2f}")
-    print(f"{'='*60}\n")
+def make_fall_alarm_handler(notifier: Optional[AlertNotifier] = None):
+    def on_fall_alarm(features: CSIFeatures):
+        now_str = datetime.fromtimestamp(features.timestamp).strftime("%H:%M:%S.%f")[:-3]
+        print(f"\n{'='*60}")
+        print(f"{COLOR_RED}{COLOR_BOLD}[{now_str}] 🚨 严重告警：检测到跌倒且长时间未见起身活动！{COLOR_RESET}")
+        print(f"触发参数: 方差={features.mean_variance:.6f}, 峰均比={features.spike_ratio:.2f}")
+        print(f"{'='*60}\n")
+        if notifier:
+            notifier.send_fall_alarm(
+                room_name="监测区域",
+                confidence="高",
+                details=f"方差均值: {features.mean_variance:.6f}, 峰均比: {features.spike_ratio:.2f}"
+            )
+    return on_fall_alarm
 
 def run_demo():
+    run_demo_with_handler(make_fall_alarm_handler())
+
+def run_demo_with_handler(alarm_handler):
     """
     无硬件仿真模式：
     生成符合真实室内多径反射物理规律的相干合成 CSI 信号，
@@ -81,7 +93,7 @@ def run_demo():
         calibration_seconds=3.0,
         fall_stillness_seconds=3.5,
         on_state_change=on_state_change,
-        on_fall_alarm=on_fall_alarm,
+        on_fall_alarm=alarm_handler,
     )
 
     fps = 30  # 模拟路由器回包采样率 30Hz
@@ -249,11 +261,25 @@ def main():
     parser.add_argument("--baud", type=int, default=921600, help="串口波特率 (默认 921600)")
     parser.add_argument("--router-mac", type=str, default="", help="过滤特定路由器 BSSID/MAC 地址")
     parser.add_argument("--file", type=str, default="", help="重放已录制的 CSI 日志文件")
+    parser.add_argument("--pushplus-token", type=str, default="", help="PushPlus 微信推送 Token")
+    parser.add_argument("--serverchan-key", type=str, default="", help="Server酱 SendKey")
+    parser.add_argument("--webhook-url", type=str, default="", help="企业微信/飞书/钉钉 Webhook 地址")
 
     args = parser.parse_args()
 
+    notifier = None
+    if args.pushplus_token or args.serverchan_key or args.webhook_url:
+        notifier = AlertNotifier(
+            pushplus_token=args.pushplus_token,
+            serverchan_key=args.serverchan_key,
+            webhook_url=args.webhook_url
+        )
+
+    alarm_cb = make_fall_alarm_handler(notifier)
+
     if args.demo or (not args.port and not args.file):
-        run_demo()
+        # 传递自定义报警函数给 demo
+        run_demo_with_handler(alarm_cb)
     elif args.file:
         run_file(args.file, args.router_mac)
     elif args.port:
