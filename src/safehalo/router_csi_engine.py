@@ -17,7 +17,7 @@ class RouterCSIEngine:
         router_mac: Optional[str] = None,
         window_size: int = 30,
         calibration_seconds: float = 4.0,
-        fall_stillness_seconds: float = 4.0,
+        fall_stillness_seconds: float = 5.0,
         on_state_change: Optional[Callable[[HumanState, HumanState, CSIFeatures], None]] = None,
         on_fall_alarm: Optional[Callable[[CSIFeatures], None]] = None,
     ):

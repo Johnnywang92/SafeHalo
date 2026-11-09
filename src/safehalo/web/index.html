@@ -158,6 +158,7 @@
             <button class="btn" onclick="setSecurityMode('FALL_GUARD')">🛡️ 跌倒守护模式 (白天正常生活/老人独居)</button>
             <button class="btn btn-secondary" onclick="setSecurityMode('AWAY_SECURITY')">🚨 离家隐形防盗模式 (全家外出/非法闯入告警)</button>
             <button class="btn btn-secondary" onclick="setSecurityMode('NIGHT_GUARD')">🌙 夜间巡航模式 (客厅防盗 + 卧室跌倒)</button>
+            <button class="btn" style="background: var(--purple); margin-top: 4px;" onclick="triggerInspect()">🔍 立即启动定向深度排查 (主动激振微体征扫描)</button>
           </div>
         </div>
       </div>
@@ -385,6 +386,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: mode })
       }).then(() => alert('已成功切换为: ' + mode));
+    }
+
+    function triggerInspect() {
+      fetch('/api/trigger_inspect', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => alert(d.message));
     }
 
     setInterval(updateTelemetry, 400);

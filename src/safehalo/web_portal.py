@@ -82,6 +82,19 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"success": success, "message": "测试告警已发送，请检查微信通知！"}).encode("utf-8"))
             return
 
+        if self.path == "/api/trigger_inspect":
+            log_event("用户手动请求【启动定向深度排查】(激振提频至 100Hz)")
+            shared_system_state["state"] = "FALL_SUSPECT"
+            shared_system_state["sample_rate"] = 100.0
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "message": "已向射频节点下发指令：提频至 100Hz，正在定向聚焦地面生命呼吸体征..."
+            }).encode("utf-8"))
+            return
+
         if self.path == "/api/set_mode":
             mode = data.get("mode", "FALL_GUARD")
             shared_system_state["security_mode"] = mode

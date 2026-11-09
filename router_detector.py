@@ -93,14 +93,14 @@ def run_demo_with_handler(alarm_handler):
 
     engine = RouterCSIEngine(
         calibration_seconds=3.0,
-        fall_stillness_seconds=3.5,
+        fall_stillness_seconds=4.5,
         on_state_change=on_state_change,
         on_fall_alarm=alarm_handler,
     )
 
     fps = 30  # 模拟路由器回包采样率 30Hz
     dt = 1.0 / fps
-    total_duration = 26.0
+    total_duration = 28.0
     sim_time = time.time()
     num_subcarriers = 64
 

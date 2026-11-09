@@ -12,6 +12,7 @@ from enum import Enum
 from typing import Callable, Optional
 from .feature_extractor import CSIFeatures
 from .pet_filter import PetImmunityFilter, PetDiscriminationResult
+from .targeted_inspector import TargetedFallInspector, TargetedInspectionState, TargetedInspectionResult
 
 class HumanState(Enum):
     CALIBRATING = "CALIBRATING"       # 正在校准空房基线
@@ -57,6 +58,11 @@ class RouterCSIDetector:
 
         # 宠物抗干扰滤波器
         self.pet_filter = PetImmunityFilter()
+
+        # 定向深度排查与主动核验引擎
+        self.targeted_inspector = TargetedFallInspector(
+            inspection_duration_seconds=fall_stillness_seconds
+        )
 
         # 状态去抖动
         self.state_hold_count = 0
@@ -111,11 +117,12 @@ class RouterCSIDetector:
 
         # 3. 跌倒关键冲击与时序判定
         # 真正的跌倒由两段组成:
-        # 阶段 A (冲击): 剧烈运动/冲击峰值 (排除宠物影响，且峰均比或方差突发抬高)
+        # 阶段 A (冲击): 剧烈运动/冲击峰值 (瞬态高方差或高差分冲击)
         # 阶段 B (骤停): 冲击发生后 3 秒内身体骤然停止运动 (diff_ratio 快速回落到静止/微动区间)
-        is_high_impact = (not pet_res.is_pet) and (
+        is_high_impact = (
             (features.spike_ratio >= self.fall_spike_threshold and diff_ratio > 2.5) or
-            (var_ratio > 8.0 and features.spike_ratio > 1.8)
+            (var_ratio > 8.0 and features.spike_ratio > 1.8) or
+            (features.diff_energy > 0.035 and features.mean_variance > 0.003)
         )
 
         if is_high_impact and self.current_state in (HumanState.MOVING, HumanState.STATIC):
@@ -123,28 +130,44 @@ class RouterCSIDetector:
 
         # 如果记录到了最近的冲击，且运动能量迅速跌入低谷 (倒地骤停)，切入 FALL_SUSPECT
         if self.fall_spike_time and (now - self.fall_spike_time <= 3.5):
-            if diff_ratio < 2.0 and self.current_state != HumanState.FALL_SUSPECT:
+            if diff_ratio < 2.5 and self.current_state != HumanState.FALL_SUSPECT:
                 self._switch_state(HumanState.FALL_SUSPECT, features)
                 return self.current_state
 
-        # 4. 处于「疑似跌倒」状态时的追踪
+        # 4. 处于「疑似跌倒」状态时，启动定向深度核验
         if self.current_state == HumanState.FALL_SUSPECT:
-            stillness_duration = now - self.fall_spike_time if self.fall_spike_time else 0.0
+            if self.targeted_inspector.current_state == TargetedInspectionState.STANDBY:
+                self.targeted_inspector.trigger_inspection(timestamp=now, trigger_reason="初筛疑似跌倒冲击")
 
-            # 如果检测到剧烈起身走动 (解除误报)
-            if diff_ratio > 2.4 and var_ratio > 3.5:
-                self.fall_spike_time = None
-                self._switch_state(HumanState.MOVING, features)
-                return self.current_state
+            # 驱动定向核验引擎分析地面微弱体征
+            verdict = self.targeted_inspector.update_frame(
+                timestamp=now,
+                diff_energy=features.diff_energy,
+                base_diff=self.base_diff,
+                subcarrier_amplitudes=features.current_amplitudes
+            )
 
-            # 如果持续处于低能静止状态超时 (倒地不起)
-            if stillness_duration >= self.fall_stillness_seconds:
-                self._switch_state(HumanState.FALL_CONFIRMED, features)
-                if self.on_fall_alarm:
-                    self.on_fall_alarm(features)
-                return self.current_state
+            if verdict:
+                if verdict.state == TargetedInspectionState.VERDICT_FALL:
+                    # 确诊倒地受困 (探测到微弱呼吸体征但无起身)
+                    self._switch_state(HumanState.FALL_CONFIRMED, features)
+                    if self.on_fall_alarm:
+                        self.on_fall_alarm(features)
+                    return self.current_state
 
-            # 保持疑似状态观测
+                elif verdict.state == TargetedInspectionState.VERDICT_RECOVERED:
+                    # 自主站起翻身，解除预警
+                    self.fall_spike_time = None
+                    self._switch_state(HumanState.MOVING, features)
+                    return self.current_state
+
+                elif verdict.state == TargetedInspectionState.VERDICT_OBJECT:
+                    # 排除人类跌倒 (无生命体征，系重物掉落地面)
+                    self.fall_spike_time = None
+                    self._switch_state(HumanState.EMPTY, features)
+                    return self.current_state
+
+            # 继续保持 FALL_SUSPECT 观测中
             return self.current_state
 
         # 5. 处于「确认跌倒」状态时
@@ -162,8 +185,8 @@ class RouterCSIDetector:
         # 存在判决 (有人静止/呼吸微动): 方差或微动比空房基线有稳定轻度抬升
         is_present = (var_ratio > 1.35 or diff_ratio > 1.3)
 
-        if pet_res.is_pet:
-            # 识别到地面宠物活动，自动抑制人体判定
+        if pet_res.is_pet and not self.fall_spike_time:
+            # 识别到地面宠物活动，且近期无剧烈人体冲击，自动抑制人体判定
             raw_target = HumanState.PET_ACTIVITY
         elif is_moving:
             raw_target = HumanState.MOVING
