@@ -41,6 +41,7 @@ STATE_COLORS = {
     HumanState.EMPTY: COLOR_CYAN,
     HumanState.STATIC: COLOR_GREEN,
     HumanState.MOVING: COLOR_YELLOW,
+    HumanState.PET_ACTIVITY: COLOR_CYAN,
     HumanState.FALL_SUSPECT: COLOR_MAGENTA,
     HumanState.FALL_CONFIRMED: COLOR_RED,
     HumanState.ROUTER_OFFLINE: COLOR_RED,
@@ -51,6 +52,7 @@ STATE_DESC = {
     HumanState.EMPTY: "空房间 (无人)",
     HumanState.STATIC: "有人静止 (呼吸微动/坐卧)",
     HumanState.MOVING: "有人活动 (走动/家务)",
+    HumanState.PET_ACTIVITY: "🐾 宠物活动 (已自动过滤抑制，不计入人体)",
     HumanState.FALL_SUSPECT: "⚠ 疑似跌倒 (发生冲击，正在持续观测)",
     HumanState.FALL_CONFIRMED: "🚨 确认跌倒报警 (倒地静止超时，请尽快救助!)",
     HumanState.ROUTER_OFFLINE: "❌ 路由器离线或严重丢包",
@@ -98,7 +100,7 @@ def run_demo_with_handler(alarm_handler):
 
     fps = 30  # 模拟路由器回包采样率 30Hz
     dt = 1.0 / fps
-    total_duration = 24.0
+    total_duration = 26.0
     sim_time = time.time()
     num_subcarriers = 64
 
@@ -109,23 +111,36 @@ def run_demo_with_handler(alarm_handler):
     start_t = 0.0
     while start_t < total_duration:
         # 根据不同生理场景演化多径相干信号
-        if start_t < 7.0:
-            # 0~7s: 空房无人 (仅极微弱信噪底)
+        if start_t < 5.0:
+            # 0~5s: 空房无人 (仅极微弱信噪底)
             activity_label = "EMPTY"
             subcarrier_amps = [a + random.gauss(0, 0.2) for a in static_channel_amp]
             for i in range(num_subcarriers):
                 current_phases[i] += random.gauss(0, 0.01)
 
-        elif start_t < 12.0:
-            # 7~12s: 有人静止呼吸 (呼吸频率 ~0.25Hz, 带来微弱的周期性多径相位微扰)
+        elif start_t < 9.0:
+            # 5~9s: 宠物猫狗在地面跑动/跳跃 (近地面局部扰动，仅影响约 20%~25% 的弱反射载波，整体能量较小)
+            activity_label = "PET_RUNNING"
+            subcarrier_amps = list(static_channel_amp)
+            for i in range(num_subcarriers):
+                # 仅极少数子载波受影响 (局部菲涅尔区)
+                if i in (10, 11, 12, 28, 29, 30):
+                    subcarrier_amps[i] += 2.2 * math.sin(2 * math.pi * 4.5 * start_t) + random.gauss(0, 0.4)
+                    current_phases[i] += 0.4 * math.sin(2 * math.pi * 4.5 * start_t)
+                else:
+                    subcarrier_amps[i] += random.gauss(0, 0.15)
+                    current_phases[i] += random.gauss(0, 0.01)
+
+        elif start_t < 14.0:
+            # 9~14s: 有人静止呼吸 (呼吸频率 ~0.25Hz, 带来微弱的周期性多径相位微扰)
             activity_label = "STATIC"
             breath_amp = 1.2 * math.sin(2 * math.pi * 0.25 * start_t)
             subcarrier_amps = [a + breath_amp * math.cos(i * 0.2) + random.gauss(0, 0.2) for i, a in enumerate(static_channel_amp)]
             for i in range(num_subcarriers):
                 current_phases[i] += 0.08 * math.sin(2 * math.pi * 0.25 * start_t) + random.gauss(0, 0.01)
 
-        elif start_t < 17.0:
-            # 12~17s: 有人走动 (人体走动多普勒 ~1.8Hz，造成强烈多径干涉与深衰落)
+        elif start_t < 19.0:
+            # 14~19s: 有人走动 (人体大体积走动多普勒 ~1.8Hz，几乎覆盖所有载波)
             activity_label = "MOVING"
             walk_f = 1.8
             subcarrier_amps = [
@@ -135,8 +150,8 @@ def run_demo_with_handler(alarm_handler):
             for i in range(num_subcarriers):
                 current_phases[i] += 0.8 * math.sin(2 * math.pi * walk_f * start_t) + random.gauss(0, 0.05)
 
-        elif start_t < 17.6:
-            # 17.0~17.6s: 跌倒瞬间冲击 (重力加速度下的人体快速坠地，高能量突变)
+        elif start_t < 19.6:
+            # 19.0~19.6s: 跌倒瞬间冲击 (重力加速度坠地冲击)
             activity_label = "FALL_IMPACT"
             subcarrier_amps = [
                 a + 28.0 * math.sin(start_t * 35.0 + i * 0.8) + random.gauss(0, 1.5)
@@ -146,7 +161,7 @@ def run_demo_with_handler(alarm_handler):
                 current_phases[i] += 3.5 + random.gauss(0, 0.2)
 
         else:
-            # 17.6~24s: 倒地后长时间静止不动 (仅存微弱呼吸)
+            # 19.6~26s: 倒地后长时间静止不动 (仅存微弱呼吸)
             activity_label = "POST_FALL_STILL"
             breath_amp = 0.8 * math.sin(2 * math.pi * 0.28 * start_t)
             subcarrier_amps = [a + breath_amp * math.cos(i * 0.2) + random.gauss(0, 0.2) for i, a in enumerate(static_channel_amp)]

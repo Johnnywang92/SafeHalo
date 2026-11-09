@@ -5,7 +5,7 @@ SafeHalo 路由器 CSI 特征提取器 (feature_extractor.py)
 
 import math
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Deque, List, Optional
 
 @dataclass
@@ -18,6 +18,7 @@ class CSIFeatures:
     respiration_energy: float = 0.0   # 低频平缓能量 (静止呼吸微动指示)
     sample_rate_hz: float = 0.0       # 路由器当前的实时采样率 (Hz)
     packet_interval_jitter: float = 0.0 # 路由器发包抖动 (ms)
+    subcarrier_variances: List[float] = field(default_factory=list) # 各载波独立方差分布
 
 class RouterFeatureExtractor:
     def __init__(self, window_size: int = 50):
@@ -104,4 +105,5 @@ class RouterFeatureExtractor:
             respiration_energy=respiration_energy,
             sample_rate_hz=sample_rate,
             packet_interval_jitter=jitter_ms,
+            subcarrier_variances=variances,
         )

@@ -11,12 +11,14 @@ import time
 from enum import Enum
 from typing import Callable, Optional
 from .feature_extractor import CSIFeatures
+from .pet_filter import PetImmunityFilter, PetDiscriminationResult
 
 class HumanState(Enum):
     CALIBRATING = "CALIBRATING"       # 正在校准空房基线
     EMPTY = "EMPTY"                   # 空房间无人
     STATIC = "STATIC"                 # 有人静止 (坐/躺/呼吸微动)
     MOVING = "MOVING"                 # 有人运动 (走动/做家务)
+    PET_ACTIVITY = "PET_ACTIVITY"     # 宠物活动 (已自动识别并抑制，防误报)
     FALL_SUSPECT = "FALL_SUSPECT"     # 疑似跌倒 (发生冲击，正在监测静止时长)
     FALL_CONFIRMED = "FALL_CONFIRMED" # 确认跌倒 (冲击后倒地静止超时，触发报警)
     ROUTER_OFFLINE = "ROUTER_OFFLINE" # 路由器离线或严重丢包
@@ -52,6 +54,9 @@ class RouterCSIDetector:
         # 跌倒检测状态跟踪
         self.fall_spike_time: Optional[float] = None
         self.last_moving_time: float = 0.0
+
+        # 宠物抗干扰滤波器
+        self.pet_filter = PetImmunityFilter()
 
         # 状态去抖动
         self.state_hold_count = 0
@@ -96,11 +101,22 @@ class RouterCSIDetector:
         var_ratio = features.mean_variance / self.base_variance
         diff_ratio = features.diff_energy / self.base_diff
 
+        # 宠物识别评估 (Pet Immunity Evaluation)
+        pet_res = self.pet_filter.evaluate(
+            subcarrier_variances=features.subcarrier_variances,
+            base_variance=self.base_variance,
+            diff_energy=features.diff_energy,
+            base_diff=self.base_diff,
+        )
+
         # 3. 跌倒关键冲击与时序判定
         # 真正的跌倒由两段组成:
-        # 阶段 A (冲击): 剧烈运动/冲击峰值 (峰均比突发抬高 spike_ratio >= threshold 且相对差分抬高)
+        # 阶段 A (冲击): 剧烈运动/冲击峰值 (排除宠物影响，且峰均比或方差突发抬高)
         # 阶段 B (骤停): 冲击发生后 3 秒内身体骤然停止运动 (diff_ratio 快速回落到静止/微动区间)
-        is_high_impact = (features.spike_ratio >= self.fall_spike_threshold and diff_ratio > 2.5) or (var_ratio > 8.0 and features.spike_ratio > 1.8)
+        is_high_impact = (not pet_res.is_pet) and (
+            (features.spike_ratio >= self.fall_spike_threshold and diff_ratio > 2.5) or
+            (var_ratio > 8.0 and features.spike_ratio > 1.8)
+        )
 
         if is_high_impact and self.current_state in (HumanState.MOVING, HumanState.STATIC):
             self.fall_spike_time = now
@@ -139,14 +155,17 @@ class RouterCSIDetector:
                 self._switch_state(HumanState.MOVING, features)
             return self.current_state
 
-        # 6. 常规状态判定 (MOVING / STATIC / EMPTY)
+        # 6. 常规状态判定 (MOVING / STATIC / PET / EMPTY)
         # 运动判决: 走动时帧间差分和方差有大幅度提升
         is_moving = (diff_ratio > 2.5 and var_ratio > 3.0) or (diff_ratio > 3.2)
 
         # 存在判决 (有人静止/呼吸微动): 方差或微动比空房基线有稳定轻度抬升
         is_present = (var_ratio > 1.35 or diff_ratio > 1.3)
 
-        if is_moving:
+        if pet_res.is_pet:
+            # 识别到地面宠物活动，自动抑制人体判定
+            raw_target = HumanState.PET_ACTIVITY
+        elif is_moving:
             raw_target = HumanState.MOVING
         elif is_present:
             raw_target = HumanState.STATIC
