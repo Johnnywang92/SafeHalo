@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.safehalo.service</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/yifanwang/workspace/SafeHalo/safehalo_service.py</string>
+        <string>--port</string>
+        <string>8080</string>
+        <string>--serial</string>
+        <string>auto</string>
+    </array>
+
+    <!-- 开机断电启动与保持存活 -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>Crashed</key>
+        <true/>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/yifanwang/workspace/SafeHalo</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/yifanwang/workspace/SafeHalo/logs/launchd_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/yifanwang/workspace/SafeHalo/logs/launchd_stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/yifanwang/workspace/SafeHalo</string>
+    </dict>
+</dict>
+</plist>

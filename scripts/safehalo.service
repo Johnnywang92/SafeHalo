@@ -1,0 +1,33 @@
+[Unit]
+Description=SafeHalo Wi-Fi CSI Elderly Fall & Anti-theft Monitoring Daemon
+Documentation=https://github.com/SafeHalo/SafeHalo
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+# 根据实际部署目录修改
+WorkingDirectory=/opt/SafeHalo
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/SafeHalo
+
+# 开机缓冲 5 秒，等待 USB 串口和无线驱动完全枚举
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/python3 /opt/SafeHalo/safehalo_service.py --host 0.0.0.0 --port 8080 --serial auto
+
+# 断电/崩溃无限自愈重启 (间隔 5 秒)
+Restart=always
+RestartSec=5s
+
+# 优雅停止信号与超时
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+# 日志输出记录至 journalctl (journalctl -u safehalo -f)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
