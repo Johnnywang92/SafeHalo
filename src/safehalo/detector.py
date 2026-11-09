@@ -13,6 +13,7 @@ from typing import Callable, Optional
 from .feature_extractor import CSIFeatures
 from .pet_filter import PetImmunityFilter, PetDiscriminationResult
 from .targeted_inspector import TargetedFallInspector, TargetedInspectionState, TargetedInspectionResult
+from .logger import logger
 
 class HumanState(Enum):
     CALIBRATING = "CALIBRATING"       # 正在校准空房基线
@@ -127,6 +128,7 @@ class RouterCSIDetector:
 
         if is_high_impact and self.current_state in (HumanState.MOVING, HumanState.STATIC):
             self.fall_spike_time = now
+            logger.log_fall_suspect(features.spike_ratio, features.diff_energy, "检测到剧烈坠落冲击")
 
         # 如果记录到了最近的冲击，且运动能量迅速跌入低谷 (倒地骤停)，切入 FALL_SUSPECT
         if self.fall_spike_time and (now - self.fall_spike_time <= 3.5):
@@ -150,6 +152,7 @@ class RouterCSIDetector:
             if verdict:
                 if verdict.state == TargetedInspectionState.VERDICT_FALL:
                     # 确诊倒地受困 (探测到微弱呼吸体征但无起身)
+                    logger.log_fall_confirmed(verdict.details, verdict.respiration_bpm, verdict.confidence)
                     self._switch_state(HumanState.FALL_CONFIRMED, features)
                     if self.on_fall_alarm:
                         self.on_fall_alarm(features)
@@ -157,12 +160,14 @@ class RouterCSIDetector:
 
                 elif verdict.state == TargetedInspectionState.VERDICT_RECOVERED:
                     # 自主站起翻身，解除预警
+                    logger.log_event("INSPECTION_RECOVERED", verdict.details, level="INFO")
                     self.fall_spike_time = None
                     self._switch_state(HumanState.MOVING, features)
                     return self.current_state
 
                 elif verdict.state == TargetedInspectionState.VERDICT_OBJECT:
                     # 排除人类跌倒 (无生命体征，系重物掉落地面)
+                    logger.log_event("INSPECTION_OBJECT", verdict.details, level="INFO")
                     self.fall_spike_time = None
                     self._switch_state(HumanState.EMPTY, features)
                     return self.current_state
@@ -216,5 +221,11 @@ class RouterCSIDetector:
         old_state = self.current_state
         self.current_state = new_state
         self.state_start_time = features.timestamp
+        logger.log_state_change(
+            old_state.name,
+            new_state.name,
+            new_state.value,
+            metrics={"variance": round(features.mean_variance, 6), "diff_energy": round(features.diff_energy, 5)}
+        )
         if self.on_state_change:
             self.on_state_change(old_state, new_state, features)

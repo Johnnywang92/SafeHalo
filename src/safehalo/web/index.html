@@ -110,6 +110,7 @@
     <button class="tab-btn" onclick="switchTab('placement')">📐 摆放与安装规范</button>
     <button class="tab-btn" onclick="switchTab('routers')">📡 支持路由器清单</button>
     <button class="tab-btn" onclick="switchTab('settings')">⚙️ 参数与手机通知配置</button>
+    <button class="tab-btn" onclick="switchTab('logs')">📋 系统与审计日志</button>
   </nav>
 
   <div class="container">
@@ -313,6 +314,54 @@
       </div>
     </div>
 
+    <!-- TAB 5: 系统与审计日志 -->
+    <div id="tab-logs" class="tab-content">
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-title">
+          <span>📋 系统与事件审计日志 (Audit & Security Logs)</span>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" onclick="fetchLogs()">🔄 刷新日志</button>
+            <button class="btn" style="background: var(--success);" onclick="downloadLogs()">⬇ 下载日志文件</button>
+            <button class="btn btn-secondary" style="background: rgba(239,68,68,0.2); color: var(--danger);" onclick="clearLogs()">🗑 清空日志</button>
+          </div>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
+          所有跌倒告警、定向核验生命体征、宠物活动过滤和安防布防事件均具备精确毫秒级时间戳，自动轮转备份，便于复盘审计。
+        </p>
+
+        <!-- 筛选过滤器 -->
+        <div style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto;">
+          <button class="btn btn-secondary log-filter-btn active" onclick="filterLogs('ALL', this)">全部日志</button>
+          <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('FALL', this)">🚨 跌倒相关</button>
+          <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('INSPECTION', this)">🔍 定向核验</button>
+          <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('PET_FILTER', this)">🐾 宠物抑制</button>
+          <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('SECURITY', this)">🛡️ 安防告警</button>
+        </div>
+
+        <!-- 结构化事件表格 -->
+        <table class="table" style="margin-bottom: 20px;">
+          <thead>
+            <tr>
+              <th style="width: 170px;">时间戳</th>
+              <th style="width: 140px;">事件类型</th>
+              <th style="width: 90px;">级别</th>
+              <th>事件描述与生理特征参数</th>
+            </tr>
+          </thead>
+          <tbody id="logs-table-body">
+            <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">正在加载日志...</td></tr>
+          </tbody>
+        </table>
+
+        <!-- 原始文本日志输出窗口 -->
+        <div class="card-title" style="margin-top: 24px; font-size: 0.95rem;">
+          <span>📄 safehalo.log 原始输出预览 (最新 80 行)</span>
+          <span id="log-file-size" style="font-size: 0.8rem; color: var(--text-muted);">大小: 0 KB</span>
+        </div>
+        <pre id="raw-log-tail" style="background: #090d16; border: 1px solid var(--card-border); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 0.8rem; color: #a5f3fc; height: 260px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;"></pre>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -321,6 +370,79 @@
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       event.target.classList.add('active');
       document.getElementById('tab-' + tabId).classList.add('active');
+      if (tabId === 'logs') {
+        fetchLogs();
+      }
+    }
+
+    let currentLogFilter = 'ALL';
+    let allLoadedEvents = [];
+
+    function fetchLogs() {
+      fetch('/api/logs')
+        .then(r => r.json())
+        .then(d => {
+          allLoadedEvents = d.events || [];
+          document.getElementById('log-file-size').innerText = '文件大小: ' + ((d.log_file_size || 0) / 1024).toFixed(1) + ' KB';
+          renderEventsTable();
+          if (d.tail && d.tail.length > 0) {
+            const pre = document.getElementById('raw-log-tail');
+            pre.innerText = d.tail.join('\n');
+            pre.scrollTop = pre.scrollHeight;
+          }
+        })
+        .catch(err => {
+          console.error('拉取日志失败:', err);
+        });
+    }
+
+    function renderEventsTable() {
+      const tbody = document.getElementById('logs-table-body');
+      let filtered = allLoadedEvents;
+      if (currentLogFilter !== 'ALL') {
+        filtered = allLoadedEvents.filter(e => e.type.includes(currentLogFilter));
+      }
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 20px;">暂无符合条件的事件记录</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.map(e => {
+        let badgeColor = 'var(--text-muted)';
+        if (e.level === 'CRITICAL' || e.level === 'ALERT') badgeColor = 'var(--danger)';
+        else if (e.level === 'WARNING') badgeColor = 'var(--warning)';
+        else if (e.type === 'PET_FILTER') badgeColor = 'var(--cyan)';
+        else if (e.type === 'STATE_CHANGE') badgeColor = 'var(--primary)';
+
+        return `
+          <tr>
+            <td style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${e.timestamp}</td>
+            <td><span style="background: rgba(255,255,255,0.08); padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">${e.type}</span></td>
+            <td><span style="color: ${badgeColor}; font-weight: 700; font-size: 0.8rem;">${e.level}</span></td>
+            <td>${e.message}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function filterLogs(filterType, btn) {
+      currentLogFilter = filterType;
+      document.querySelectorAll('.log-filter-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      renderEventsTable();
+    }
+
+    function downloadLogs() {
+      window.location.href = '/api/logs/download';
+    }
+
+    function clearLogs() {
+      if (!confirm('确定要清空当前的系统与事件审计日志吗？此操作无法撤销。')) return;
+      fetch('/api/logs/clear', { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+          alert(d.message || '日志已清空');
+          fetchLogs();
+        });
     }
 
     const stateMap = {

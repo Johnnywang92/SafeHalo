@@ -15,6 +15,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional
 from .notifier import AlertNotifier
+from .logger import logger
 
 # 全局共享状态字典 (供算法后台线程与 Web 前端交互)
 shared_system_state = {
@@ -31,11 +32,7 @@ shared_system_state = {
 }
 
 def log_event(text: str):
-    time_str = datetime.now().strftime("%H:%M:%S")
-    events = shared_system_state["recent_events"]
-    events.insert(0, {"time": time_str, "text": text})
-    if len(events) > 20:
-        events.pop()
+    logger.log_event("WEB_PORTAL", text, level="INFO")
 
 class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
     HTML_PATH = os.path.join(os.path.dirname(__file__), "web", "index.html")
@@ -53,10 +50,39 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if self.path == "/api/status":
+            events = logger.get_recent_events(limit=15)
+            if events:
+                shared_system_state["recent_events"] = [{"time": e["time_short"], "text": e["message"]} for e in events]
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps(shared_system_state).encode("utf-8"))
+            return
+
+        if self.path.startswith("/api/logs"):
+            if self.path == "/api/logs/download":
+                if os.path.exists(logger.log_file):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/plain; charset=utf-8")
+                    self.send_header("Content-Disposition", 'attachment; filename="safehalo.log"')
+                    self.end_headers()
+                    with open(logger.log_file, "rb") as f:
+                        self.wfile.write(f.read())
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    self.wfile.write(b"No log file found.")
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            payload = {
+                "events": logger.get_recent_events(limit=80),
+                "tail": logger.get_log_tail(lines=80),
+                "log_file_size": os.path.getsize(logger.log_file) if os.path.exists(logger.log_file) else 0
+            }
+            self.wfile.write(json.dumps(payload).encode("utf-8"))
             return
 
         # 默认 404
@@ -103,6 +129,14 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             self.wfile.write(json.dumps({"success": True}).encode("utf-8"))
+            return
+
+        if self.path == "/api/logs/clear":
+            logger.clear_logs()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "message": "系统与事件日志已成功清空"}).encode("utf-8"))
             return
 
         self.send_error(404, "Not Found")

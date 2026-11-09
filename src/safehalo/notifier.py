@@ -11,6 +11,7 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from typing import Optional
+from .logger import logger
 
 class AlertNotifier:
     def __init__(
@@ -59,7 +60,7 @@ class AlertNotifier:
             success = self._send_webhook(title, content) or success
 
         if not (self.pushplus_token or self.serverchan_key or self.webhook_url):
-            print(f"[Notifier 本地模拟推送] {title}\n{content}")
+            logger.info(f"[Notifier 本地模拟推送] {title} - {details}")
             return True
 
         return success
@@ -132,10 +133,10 @@ class AlertNotifier:
             )
             with urllib.request.urlopen(req, timeout=5) as response:
                 res = response.read().decode("utf-8")
-                print(f"[Notifier] 推送响应: {res[:100]}")
+                logger.info(f"[Notifier 推送成功] 响应: {res[:100]}")
                 return True
         except Exception as e:
-            print(f"[Notifier 失败] 请求 {url} 出错: {e}")
+            logger.error(f"[Notifier 推送失败] 请求 {url} 出错: {e}")
             return False
 
 if __name__ == "__main__":

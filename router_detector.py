@@ -26,6 +26,7 @@ from src.safehalo.router_csi_engine import RouterCSIEngine
 from src.safehalo.detector import HumanState
 from src.safehalo.feature_extractor import CSIFeatures
 from src.safehalo.notifier import AlertNotifier
+from src.safehalo.logger import logger
 
 # 控制台彩色输出
 COLOR_RESET = "\033[0m"
@@ -90,6 +91,7 @@ def run_demo_with_handler(alarm_handler):
     """
     print(f"{COLOR_BOLD}=== 启动纯路由器方案 CSI 算法仿真测试 (Demo 模式) ==={COLOR_RESET}")
     print("将依次模拟: 基线校准 -> 空房 -> 静止呼吸 -> 走动 -> 跌倒冲击 -> 倒地超时报警\n")
+    logger.info("启动纯路由器方案 CSI 算法仿真测试 (Demo 模式)")
 
     engine = RouterCSIEngine(
         calibration_seconds=3.0,
@@ -196,6 +198,7 @@ def run_live(port: str, baud: int, router_mac: str):
     """真实串口监听模式"""
     print(f"{COLOR_BOLD}=== SafeHalo 纯路由器 CSI 实时检测引擎已启动 ==={COLOR_RESET}")
     print(f"监听串口: {port} | 波特率: {baud}")
+    logger.info(f"SafeHalo 启动串口实时监听: {port}, 波特率: {baud}, MAC白名单: {router_mac or '全部'}")
     if router_mac:
         print(f"路由器 MAC 白名单过滤: {router_mac}")
     else:
@@ -251,6 +254,7 @@ def run_live(port: str, baud: int, router_mac: str):
 def run_file(filepath: str, router_mac: str):
     """离线文件重放模式"""
     print(f"正在重放文件: {filepath}")
+    logger.info(f"SafeHalo 启动离线文件重放: {filepath}")
     engine = RouterCSIEngine(
         router_mac=router_mac,
         calibration_seconds=4.0,

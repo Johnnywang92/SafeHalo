@@ -4,3 +4,5 @@ __pycache__/
 .vscode/
 experiments/*.csv
 experiments/*.log
+logs/*.log
+logs/*.jsonl

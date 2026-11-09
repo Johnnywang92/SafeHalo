@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Callable, Optional
 from .detector import HumanState
 from .feature_extractor import CSIFeatures
+from .logger import logger
 
 class SecurityMode(Enum):
     DISARMED = "DISARMED"       # 撤防模式 (居家正常监测跌倒，不报入侵)
@@ -50,7 +51,7 @@ class SecurityGuardEngine:
         self.mode = new_mode
         self.arm_time = time.time()
         self.consecutive_human_frames = 0
-        print(f"[安防系统] 模式已切换为: {self.mode.value}")
+        logger.log_event("SECURITY_MODE", f"安防布防模式已切换为: {self.mode.value}", level="INFO")
 
     def process_state(self, current_state: HumanState, features: CSIFeatures):
         """
@@ -82,6 +83,7 @@ class SecurityGuardEngine:
                 if self.consecutive_human_frames >= 2: # 连续 2 帧确认为人体走动
                     self.last_alarm_time = now
                     msg = "离家布防模式下检测到人员走动入侵！"
+                    logger.log_security_intrusion(self.mode.value, features.diff_energy)
                     if self.on_intruder_alarm:
                         self.on_intruder_alarm(IntrusionAlertLevel.ALARM, msg, features)
 
@@ -90,5 +92,6 @@ class SecurityGuardEngine:
                 if self.consecutive_human_frames >= 10: # 长时间静止潜伏
                     self.last_alarm_time = now
                     msg = "离家布防模式下检测到人员潜伏静止 (呼吸微动)！"
+                    logger.log_security_intrusion(self.mode.value, features.diff_energy)
                     if self.on_intruder_alarm:
                         self.on_intruder_alarm(IntrusionAlertLevel.SUSPECT, msg, features)

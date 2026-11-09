@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, List, Optional
+from .logger import logger
 
 class TargetedInspectionState(Enum):
     STANDBY = "STANDBY"                       # 常规待命
@@ -200,5 +201,6 @@ class TargetedFallInspector:
 
     def _switch_state(self, new_state: TargetedInspectionState, desc: str):
         self.current_state = new_state
+        logger.log_inspection_progress(new_state.name, desc)
         if self.on_inspection_progress:
             self.on_inspection_progress(new_state, desc)
