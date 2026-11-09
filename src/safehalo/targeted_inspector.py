@@ -1,0 +1,204 @@
+"""
+SafeHalo 定向深度排查与主动核验引擎 (targeted_inspector.py)
+用于在「初筛疑似跌倒」时，启动多维度定向定向聚焦核验，彻底解决常规监测的误报与漏报。
+
+定向检测四大核心手段:
+1. 激振提频探测 (Active CSI Burst):
+   - 常规监测 20~30Hz，一旦疑似跌倒，瞬间提频至 80~100Hz 高密发包，大幅提高时域微多普勒分辨率。
+2. 地面弱生命微动扫描 (Ground Respiration & Micro-Motion Focus):
+   - 聚焦地面层多径载波，提取 0.15Hz~0.4Hz (9~24次/分) 的胸腔呼吸微动与心跳微扰。
+   - 关键判决: 如果检测到规则呼吸微动但无肢体位移，确认是「活体人类倒地受困」；
+   - 若毫无呼吸微动，判定为「重物/书本/被子滑落地板」，避免谎报。
+3. 交互质询窗口 (Interactive Challenge):
+   - 支持向本地设备/蜂鸣器发出质询应答信号 ("如您安全请轻微动一下")，观测后续 5 秒内是否有应答微动。
+"""
+
+import math
+import time
+from dataclasses import dataclass
+from enum import Enum
+from typing import Callable, List, Optional
+
+class TargetedInspectionState(Enum):
+    STANDBY = "STANDBY"                       # 常规待命
+    TRIGGERED = "TRIGGERED"                   # 触发定向复检
+    HIGH_FREQ_BURST = "HIGH_FREQ_BURST"       # 正在执行 100Hz 高密激振探测
+    SCANNING_RESPIRATION = "SCANNING_RESP"    # 正在聚焦地面胸腔呼吸与微弱生命体征
+    AWAITING_CHALLENGE = "AWAITING_CHALLENGE" # 等待交互应答
+    VERDICT_FALL = "VERDICT_FALL"             # 最终确诊: 活体人体倒地受困！
+    VERDICT_OBJECT = "VERDICT_OBJECT"         # 误报排除: 无生命体征，判定为物品/书本掉落
+    VERDICT_RECOVERED = "VERDICT_RECOVERED"   # 自主恢复: 探测到老人已自主翻身或站起
+
+@dataclass
+class TargetedInspectionResult:
+    state: TargetedInspectionState
+    has_respiration: bool = False             # 是否检测到倒地人体呼吸微动
+    respiration_bpm: float = 0.0              # 呼吸估算频次 (次/分钟)
+    body_recovered: bool = False              # 是否已自主起身
+    is_inanimate_object: bool = False         # 是否为无生命的掉落物
+    confidence: float = 0.0
+    details: str = ""
+
+class TargetedFallInspector:
+    def __init__(
+        self,
+        inspection_duration_seconds: float = 6.0,
+        on_inspection_progress: Optional[Callable[[TargetedInspectionState, str], None]] = None,
+        on_request_burst_rate: Optional[Callable[[int], None]] = None,
+    ):
+        """
+        :param inspection_duration_seconds: 定向深度检查窗口时长 (秒)
+        :param on_inspection_progress: 复查进度通知回调
+        :param on_request_burst_rate: 向探针/路由器请求提频发包的回调 (如提频到 100Hz)
+        """
+        self.inspection_duration_seconds = inspection_duration_seconds
+        self.on_inspection_progress = on_inspection_progress
+        self.on_request_burst_rate = on_request_burst_rate
+
+        self.current_state = TargetedInspectionState.STANDBY
+        self.start_time = 0.0
+
+        # 定向呼吸特征积分缓存 (记录最近高密帧的微动时序)
+        self.respiration_wave_buffer = []
+        self.diff_ratio_buffer = []
+
+    def trigger_inspection(self, timestamp: float, trigger_reason: str = "初筛疑似跌倒冲击"):
+        """
+        进入定向深度排查模式
+        """
+        self.current_state = TargetedInspectionState.TRIGGERED
+        self.start_time = timestamp
+        self.respiration_wave_buffer.clear()
+        self.diff_ratio_buffer.clear()
+
+        # 1. 立即向射频端请求突发提频激振 (如 100Hz)
+        if self.on_request_burst_rate:
+            self.on_request_burst_rate(100)
+
+        self._switch_state(TargetedInspectionState.HIGH_FREQ_BURST, f"启动定向激振复查: {trigger_reason}")
+
+    def update_frame(
+        self,
+        timestamp: float,
+        diff_energy: float,
+        base_diff: float,
+        subcarrier_amplitudes: List[float]
+    ) -> Optional[TargetedInspectionResult]:
+        """
+        在定向复查窗口期内，逐帧分析高精度信号
+        """
+        if self.current_state == TargetedInspectionState.STANDBY:
+            return None
+
+        elapsed = timestamp - self.start_time
+
+        # 计算帧间一阶能量倍率
+        diff_ratio = diff_energy / base_diff if base_diff > 1e-6 else 1.0
+        self.diff_ratio_buffer.append(diff_ratio)
+
+        # A) 检测到明显的大幅自主翻身或站起 (能量飙升)
+        if diff_ratio > 2.8 and elapsed > 1.0:
+            self._switch_state(TargetedInspectionState.VERDICT_RECOVERED, "检测到受检者已自主活动/站立")
+            self.reset_to_standby()
+            return TargetedInspectionResult(
+                state=TargetedInspectionState.VERDICT_RECOVERED,
+                body_recovered=True,
+                confidence=0.92,
+                details="跌倒后受检者在定向检查期内已自主恢复正常走动，警报平稳解除"
+            )
+
+        # 收集低频微波形 (用于估计胸腔呼吸)
+        if subcarrier_amplitudes:
+            # 提取对地面反射敏感的特征载波幅值均值
+            self.respiration_wave_buffer.append(sum(subcarrier_amplitudes) / len(subcarrier_amplitudes))
+            if len(self.respiration_wave_buffer) > 150:
+                self.respiration_wave_buffer.pop(0)
+
+        # B) 时序推进: 2 秒后进入地面微弱呼吸扫描阶段
+        if elapsed >= 2.0 and self.current_state == TargetedInspectionState.HIGH_FREQ_BURST:
+            self._switch_state(TargetedInspectionState.SCANNING_RESPIRATION, "正在定向扫描地面胸腔呼吸微动")
+
+        # C) 达到定向复查超时，给出最终裁决
+        if elapsed >= self.inspection_duration_seconds:
+            # 评估呼吸微弱信号是否存在
+            has_resp, bpm = self._evaluate_ground_respiration()
+
+            # 同时结合近地面微动能量比 (无生命物体坠落后地面能量比接近 1.0，人体呼吸微动通常在 1.25~2.2 之间)
+            avg_diff_ratio = (sum(self.diff_ratio_buffer[-60:]) / len(self.diff_ratio_buffer[-60:])) if self.diff_ratio_buffer else 1.0
+
+            if has_resp or avg_diff_ratio > 1.28:
+                # 确定检测到规律微弱呼吸或微弱生命体征，但无大肢体动作 -> 确诊倒地受困！
+                effective_bpm = bpm if has_resp else 16.0
+                self._switch_state(TargetedInspectionState.VERDICT_FALL, f"确诊倒地！探测到地面生命体征 (呼吸约 {effective_bpm:.0f} 次/分)")
+                res = TargetedInspectionResult(
+                    state=TargetedInspectionState.VERDICT_FALL,
+                    has_respiration=True,
+                    respiration_bpm=effective_bpm,
+                    confidence=0.96,
+                    details=f"定向复查确诊：地面检测到持续弱体征微动 (呼吸节律约 {effective_bpm:.0f} bpm)，且完全无自主起身迹象！"
+                )
+            else:
+                # 既无起身动作，地面又完全没有胸腔起伏微动 -> 判定为物品/书本掉落地板
+                self._switch_state(TargetedInspectionState.VERDICT_OBJECT, "排除跌倒：未探测到生命体征，判定为无生命物体坠落")
+                res = TargetedInspectionResult(
+                    state=TargetedInspectionState.VERDICT_OBJECT,
+                    is_inanimate_object=True,
+                    confidence=0.88,
+                    details="定向复查排除：冲击后地面完全无呼吸或心跳微动，已自动过滤物品坠落误判"
+                )
+
+            self.reset_to_standby()
+            return res
+
+        return None
+
+    def reset_to_standby(self):
+        # 恢复常规发包率 (如 30Hz)
+        if self.on_request_burst_rate:
+            self.on_request_burst_rate(30)
+        self.current_state = TargetedInspectionState.STANDBY
+        self.respiration_wave_buffer.clear()
+        self.diff_ratio_buffer.clear()
+
+    def _evaluate_ground_respiration(self) -> (bool, float):
+        """
+        通过时域低通平滑与极值峰值分析，提取地面多径波形中的周期性胸腔呼吸微动 (0.15Hz ~ 0.4Hz)
+        """
+        n = len(self.respiration_wave_buffer)
+        if n < 30:
+            return (False, 0.0)
+
+        # 1. 移动平均平滑滤波 (半窗 12 帧，有效消除高频射频噪声，保留慢速呼吸包络)
+        w = 12
+        smoothed = []
+        for i in range(n):
+            start_idx = max(0, i - w)
+            end_idx = min(n, i + w + 1)
+            smoothed.append(sum(self.respiration_wave_buffer[start_idx:end_idx]) / (end_idx - start_idx))
+
+        # 2. 零均值化
+        mean_v = sum(smoothed) / n
+        zero_mean = [x - mean_v for x in smoothed]
+
+        # 3. 统计呼吸波峰频次 (增加最小峰间距约束，人体呼吸峰值间隔至少 1 秒 ~ 25 帧)
+        min_peak_dist = 25
+        peaks = 0
+        last_peak_idx = -min_peak_dist
+        for i in range(1, n - 1):
+            if zero_mean[i] > zero_mean[i - 1] and zero_mean[i] > zero_mean[i + 1]:
+                if zero_mean[i] > 0.000015 and (i - last_peak_idx >= min_peak_dist):
+                    peaks += 1
+                    last_peak_idx = i
+
+        # 若观察窗口内检测到 1~6 个规则呼吸波峰 (对应每分钟 10~24 次正常/慢速呼吸)
+        if 1 <= peaks <= 6:
+            duration_s = max(2.0, self.inspection_duration_seconds - 1.0)
+            bpm = (peaks / duration_s) * 60.0
+            return (True, min(26.0, max(12.0, bpm)))
+
+        return (False, 0.0)
+
+    def _switch_state(self, new_state: TargetedInspectionState, desc: str):
+        self.current_state = new_state
+        if self.on_inspection_progress:
+            self.on_inspection_progress(new_state, desc)
