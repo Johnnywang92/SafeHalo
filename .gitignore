@@ -6,3 +6,4 @@ experiments/*.csv
 experiments/*.log
 logs/*.log
 logs/*.jsonl
+data/*.json

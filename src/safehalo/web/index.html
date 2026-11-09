@@ -88,6 +88,12 @@
     .table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.88rem; }
     .table th, .table td { padding: 10px 12px; border: 1px solid var(--card-border); text-align: left; }
     .table th { background: #0f172a; color: var(--primary); }
+
+    /* 登录与弹窗模态框 */
+    .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+    .modal-overlay.active { display: flex; }
+    .modal-box { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 28px; width: 90%; max-width: 420px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .modal-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
   </style>
 </head>
 <body>
@@ -99,18 +105,28 @@
         <h1>SafeHalo 控制台 <span>WiFi CSI 跌倒与安防</span></h1>
       </div>
     </div>
-    <div class="header-status">
-      <div class="pulse-dot"></div>
-      <span id="conn-status">信号流正常 (实时监测中)</span>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <div class="header-status">
+        <div class="pulse-dot"></div>
+        <span id="conn-status">信号流正常</span>
+      </div>
+      <div id="user-profile-badge" style="display: flex; align-items: center; gap: 8px; background: #0f172a; padding: 5px 12px; border-radius: 20px; font-size: 0.82rem; border: 1px solid var(--card-border);">
+        <span id="header-user-icon">👤</span>
+        <span id="header-username" style="font-weight: 600;">未登录</span>
+        <span id="header-role" style="color: var(--text-muted); font-size: 0.75rem;">(访客)</span>
+      </div>
+      <button class="btn btn-secondary" id="auth-btn" style="padding: 6px 14px; font-size: 0.82rem;" onclick="handleAuthButtonClick()">登录</button>
     </div>
   </header>
 
   <nav class="nav-tabs">
     <button class="tab-btn active" onclick="switchTab('dashboard')">实时大盘</button>
+    <button class="tab-btn" onclick="switchTab('remote')">🌐 远程访问与穿透</button>
     <button class="tab-btn" onclick="switchTab('placement')">📐 摆放与安装规范</button>
     <button class="tab-btn" onclick="switchTab('routers')">📡 支持路由器清单</button>
     <button class="tab-btn" onclick="switchTab('settings')">⚙️ 参数与手机通知配置</button>
     <button class="tab-btn" onclick="switchTab('logs')">📋 系统与审计日志</button>
+    <button class="tab-btn" id="tab-btn-users" onclick="switchTab('users')" style="display: none;">👤 成员与用户管理</button>
   </nav>
 
   <div class="container">
@@ -362,9 +378,255 @@
       </div>
     </div>
 
+    <!-- TAB 6: 远程访问与公网穿透指南 -->
+    <div id="tab-remote" class="tab-content">
+      <div class="card doc-section">
+        <h3>🌐 怎样在公司或外出时，通过手机 4G/5G 远程访问 SafeHalo？</h3>
+        <p>SafeHalo Web 控制台天然绑定 <code>0.0.0.0:8080</code>。由于家庭宽带通常无固定公网 IPv4，推荐以下三种零成本、高安全的远程访问方案：</p>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 20px 0;">
+          <div style="background: #090d16; border: 1px solid var(--primary); border-radius: 12px; padding: 18px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+              <span style="font-weight: 700; color: #38bdf8;">★ 推荐方案 A：Cloudflare Tunnel</span>
+              <span style="background: rgba(56,189,248,0.2); color: #38bdf8; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px;">免公网IP · 自动HTTPS</span>
+            </div>
+            <p style="font-size: 0.86rem; color: var(--text-muted); margin-bottom: 10px;">
+              无需在路由器上做任何端口映射，全球 CDN 节点穿透，且自动配置免费 SSL 绿锁证书，手机端打开最流畅安全。
+            </p>
+            <div class="diagram-box" style="margin: 0; font-size: 0.8rem;">
+# 1. 安装 Cloudflared
+# macOS: brew install cloudflared
+# OpenWrt: opkg update && opkg install cloudflared
+
+# 2. 一键启动免费快速隧道:
+cloudflared tunnel --url http://localhost:8080
+            </div>
+            <p style="font-size: 0.82rem; color: var(--success); margin-top: 10px;">
+              运行后终端将返回独立公网链接 (如 <code>https://xxxx.trycloudflare.com</code>)，直接发给家人即可远程使用。
+            </p>
+          </div>
+
+          <div style="background: #090d16; border: 1px solid var(--card-border); border-radius: 12px; padding: 18px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+              <span style="font-weight: 700; color: #34d399;">方案 B：Tailscale 虚拟专网</span>
+              <span style="background: rgba(52,211,153,0.2); color: #34d399; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px;">点对点加密 · 极度安全</span>
+            </div>
+            <p style="font-size: 0.86rem; color: var(--text-muted); margin-bottom: 10px;">
+              在手机与路由器上同时安装 Tailscale，二者通过底层 WireGuard 协议组成私密加密内网。
+            </p>
+            <div class="diagram-box" style="margin: 0; font-size: 0.8rem;">
+# 手机与家庭路由器登录同一账号
+# 手机浏览器直接打开 Tailscale 内网地址:
+http://100.x.x.x:8080
+            </div>
+            <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 10px;">
+              不经过第三方中继，完全对外隐身，杜绝黑客扫描。
+            </p>
+          </div>
+        </div>
+
+        <h3>常见网络环境访问地址汇总</h3>
+        <table class="table">
+          <tr>
+            <th>使用场景</th>
+            <th>访问链接地址</th>
+            <th>适用人员</th>
+          </tr>
+          <tr>
+            <td><strong>家庭 WiFi 内网</strong></td>
+            <td><code>http://192.168.1.1:8080</code> 或 <code>http://localhost:8080</code></td>
+            <td>在家中连着路由器 WiFi 的电脑或手机</td>
+          </tr>
+          <tr>
+            <td><strong>外出公网访问</strong></td>
+            <td><code>https://&lt;你的域名或Cloudflare穿透地址&gt;</code></td>
+            <td>子女上班、出差外出，通过 4G/5G 手机随时查看</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 7: 成员与用户管理 -->
+    <div id="tab-users" class="tab-content">
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-title">
+          <span>👤 家庭成员与访问权限管理 (User Management)</span>
+          <button class="btn" onclick="openNewUserModal()">➕ 添加新家庭成员</button>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
+          支持为子女、看护人员分配独立账号。系统实施细粒度权限控制：管理员可调整灵敏度与清空记录，普通成员仅可查看生理状态与接收告警。
+        </p>
+
+        <table class="table" style="margin-bottom: 20px;">
+          <thead>
+            <tr>
+              <th>用户名</th>
+              <th>姓名/称呼</th>
+              <th>系统角色</th>
+              <th>创建时间</th>
+              <th>最后登录</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="users-table-body">
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">正在加载成员列表...</td></tr>
+          </tbody>
+        </table>
+
+        <div style="border-top: 1px solid var(--card-border); padding-top: 18px; margin-top: 20px;">
+          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">🔑 修改当前登录密码</h4>
+          <div style="display: flex; gap: 12px; max-width: 500px;">
+            <input type="password" id="my-old-pwd" placeholder="原密码">
+            <input type="password" id="my-new-pwd" placeholder="新密码 (至少6位)">
+            <button class="btn btn-secondary" onclick="changeMyPassword()" style="white-space: nowrap;">确认修改</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 登录模态框 -->
+  <div id="modal-login" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title">
+        <span>🔐 SafeHalo 用户登录</span>
+        <span style="cursor: pointer; color: var(--text-muted);" onclick="closeAuthModal()">✕</span>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">
+        远程访问已开启安全鉴权。初始管理员账号: <code>admin</code> / <code>admin123</code>
+      </p>
+      <div class="form-group">
+        <label>用户名</label>
+        <input type="text" id="login-username" placeholder="请输入用户名" value="admin">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="login-password" placeholder="请输入密码" value="admin123">
+      </div>
+      <div id="login-err-msg" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 12px; display: none;"></div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button class="btn" style="flex: 1;" onclick="submitLogin()">登 录</button>
+        <button class="btn btn-secondary" onclick="closeAuthModal()">取 消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 添加新成员模态框 -->
+  <div id="modal-new-user" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title">
+        <span>➕ 添加家庭成员账号</span>
+        <span style="cursor: pointer; color: var(--text-muted);" onclick="closeNewUserModal()">✕</span>
+      </div>
+      <div class="form-group">
+        <label>登录用户名 (如 son, daughter)</label>
+        <input type="text" id="new-user-name" placeholder="字母或数字，至少3位">
+      </div>
+      <div class="form-group">
+        <label>初始密码 (至少6位)</label>
+        <input type="password" id="new-user-pwd" placeholder="请设置初始登录密码">
+      </div>
+      <div class="form-group">
+        <label>家庭称呼/姓名 (如 大儿子、护工李阿姨)</label>
+        <input type="text" id="new-user-display" placeholder="备注称呼">
+      </div>
+      <div class="form-group">
+        <label>权限角色</label>
+        <select id="new-user-role">
+          <option value="family" selected>家庭成员 (仅可查看状态与日志，接收告警)</option>
+          <option value="admin">超级管理员 (可修改参数、增删成员与清空日志)</option>
+        </select>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button class="btn" style="flex: 1;" onclick="submitCreateUser()">保 存</button>
+        <button class="btn btn-secondary" onclick="closeNewUserModal()">取 消</button>
+      </div>
+    </div>
   </div>
 
   <script>
+    let currentUser = null;
+
+    function checkAuthStatus() {
+      fetch('/api/auth/current')
+        .then(r => r.json())
+        .then(d => {
+          if (d.authenticated && d.user) {
+            currentUser = d.user;
+            document.getElementById('header-username').innerText = currentUser.display_name || currentUser.username;
+            document.getElementById('header-role').innerText = currentUser.role === 'admin' ? '(超级管理员)' : '(家庭成员)';
+            document.getElementById('auth-btn').innerText = '退出登录';
+            document.getElementById('tab-btn-users').style.display = currentUser.role === 'admin' ? 'block' : 'none';
+            closeAuthModal();
+          } else {
+            currentUser = null;
+            document.getElementById('header-username').innerText = '未登录';
+            document.getElementById('header-role').innerText = '(访客)';
+            document.getElementById('auth-btn').innerText = '登录';
+            document.getElementById('tab-btn-users').style.display = 'none';
+            openAuthModal();
+          }
+        })
+        .catch(err => {
+          console.error('检查认证状态失败:', err);
+        });
+    }
+
+    function handleAuthButtonClick() {
+      if (currentUser) {
+        if (confirm('确定要退出登录吗？')) {
+          fetch('/api/auth/logout', { method: 'POST' })
+            .then(() => {
+              checkAuthStatus();
+            });
+        }
+      } else {
+        openAuthModal();
+      }
+    }
+
+    function openAuthModal() {
+      document.getElementById('modal-login').classList.add('active');
+      document.getElementById('login-err-msg').style.display = 'none';
+    }
+
+    function closeAuthModal() {
+      document.getElementById('modal-login').classList.remove('active');
+    }
+
+    function submitLogin() {
+      const u = document.getElementById('login-username').value.trim();
+      const p = document.getElementById('login-password').value;
+      const errBox = document.getElementById('login-err-msg');
+      if (!u || !p) {
+        errBox.innerText = '请输入用户名和密码';
+        errBox.style.display = 'block';
+        return;
+      }
+      fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: p })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          errBox.style.display = 'none';
+          closeAuthModal();
+          checkAuthStatus();
+          alert('登录成功！欢迎 ' + (d.user.display_name || d.user.username));
+        } else {
+          errBox.innerText = d.message || '登录失败';
+          errBox.style.display = 'block';
+        }
+      })
+      .catch(err => {
+        errBox.innerText = '登录网络错误: ' + err;
+        errBox.style.display = 'block';
+      });
+    }
+
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -372,7 +634,125 @@
       document.getElementById('tab-' + tabId).classList.add('active');
       if (tabId === 'logs') {
         fetchLogs();
+      } else if (tabId === 'users') {
+        fetchUsers();
       }
+    }
+
+    /* 用户管理相关函数 */
+    function fetchUsers() {
+      fetch('/api/users')
+        .then(r => {
+          if (r.status === 401 || r.status === 403) throw new Error('权限不足或未登录');
+          return r.json();
+        })
+        .then(d => {
+          const tbody = document.getElementById('users-table-body');
+          const users = d.users || [];
+          if (users.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">暂无成员数据</td></tr>';
+            return;
+          }
+          tbody.innerHTML = users.map(u => {
+            const roleBadge = u.role === 'admin' 
+              ? '<span style="background: rgba(239,68,68,0.2); color: var(--danger); padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 700;">超级管理员</span>'
+              : '<span style="background: rgba(56,189,248,0.2); color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">家庭普通成员</span>';
+            
+            const isSelf = currentUser && currentUser.username === u.username;
+            const delBtn = isSelf 
+              ? '<span style="color: var(--text-muted); font-size: 0.8rem;">(当前账号)</span>'
+              : `<button class="btn btn-secondary" style="background: rgba(239,68,68,0.2); color: var(--danger); padding: 4px 10px; font-size: 0.8rem;" onclick="deleteUser('${u.username}')">删除</button>`;
+
+            return `
+              <tr>
+                <td style="font-weight: 600;">${u.username}</td>
+                <td>${u.display_name}</td>
+                <td>${roleBadge}</td>
+                <td style="font-size: 0.82rem; color: var(--text-muted);">${u.created_at}</td>
+                <td style="font-size: 0.82rem; color: var(--text-muted);">${u.last_login}</td>
+                <td>${delBtn}</td>
+              </tr>
+            `;
+          }).join('');
+        })
+        .catch(err => {
+          document.getElementById('users-table-body').innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger);">${err.message}</td></tr>`;
+        });
+    }
+
+    function openNewUserModal() {
+      document.getElementById('modal-new-user').classList.add('active');
+    }
+
+    function closeNewUserModal() {
+      document.getElementById('modal-new-user').classList.remove('active');
+    }
+
+    function submitCreateUser() {
+      const u = document.getElementById('new-user-name').value.trim();
+      const p = document.getElementById('new-user-pwd').value;
+      const d = document.getElementById('new-user-display').value.trim();
+      const r = document.getElementById('new-user-role').value;
+      if (!u || !p) {
+        alert('请输入用户名与初始密码');
+        return;
+      }
+      fetch('/api/users/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: u, password: p, display_name: d, role: r })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          alert('成员添加成功！');
+          closeNewUserModal();
+          fetchUsers();
+        } else {
+          alert(res.message || '添加失败');
+        }
+      });
+    }
+
+    function deleteUser(username) {
+      if (!confirm(`确定要删除家庭成员账号 [${username}] 吗？`)) return;
+      fetch('/api/users/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username })
+      })
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) {
+          alert('成员已成功删除');
+          fetchUsers();
+        } else {
+          alert(res.message || '删除失败');
+        }
+      });
+    }
+
+    function changeMyPassword() {
+      const oldP = document.getElementById('my-old-pwd').value;
+      const newP = document.getElementById('my-new-pwd').value;
+      if (!oldP || !newP) {
+        alert('请输入原密码和新密码');
+        return;
+      }
+      fetch('/api/auth/update_password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_password: oldP, new_password: newP })
+      })
+      .then(r => r.json())
+      .then(d => {
+        alert(d.message);
+        if (d.success) {
+          document.getElementById('my-old-pwd').value = '';
+          document.getElementById('my-new-pwd').value = '';
+          checkAuthStatus();
+        }
+      });
     }
 
     let currentLogFilter = 'ALL';
@@ -516,7 +896,9 @@
         .then(d => alert(d.message));
     }
 
-    setInterval(updateTelemetry, 400);
+    // 页面加载即校验用户登录状态
+    checkAuthStatus();
+    setInterval(updateTelemetry, 500);
   </script>
 </body>
 </html>
