@@ -9,6 +9,7 @@ SafeHalo 是一个基于低功耗物联网传感与信号分析的跌倒检测�
 - 纯路由器方案操作指南：[docs/pure_router_guide.md](docs/pure_router_guide.md)
 - 阶段 1 完整规划文档：[docs/phase1_plan.md](docs/phase1_plan.md)
 - 纯路由器检测算法：[router_detector.py](router_detector.py)
+- Web 配置控制台门户：[web_server.py](web_server.py) (内置路由器选型与摆放说明)
 - 实验记录模板：[experiments/experiment_log_template.md](experiments/experiment_log_template.md)
 - 采集打标脚本：[scripts/tagger.py](scripts/tagger.py)
 

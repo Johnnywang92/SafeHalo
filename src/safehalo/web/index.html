@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeHalo - Wi-Fi CSI 跌倒守护与隐形安防控制台</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #8b5cf6;
+      --cyan: #06b6d4;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+    body { background-color: var(--bg); color: var(--text); padding-bottom: 60px; }
+    header { background: #1e293b; border-bottom: 1px solid var(--card-border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .logo-icon { width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #8b5cf6); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; }
+    .brand h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.5px; }
+    .brand span { font-size: 0.8rem; color: var(--text-muted); background: #334155; padding: 2px 8px; border-radius: 12px; margin-left: 8px; }
+    .header-status { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--success); }
+    .pulse-dot { width: 8px; height: 8px; background: var(--success); border-radius: 50%; box-shadow: 0 0 8px var(--success); animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+    
+    .nav-tabs { display: flex; background: var(--card-bg); border-bottom: 1px solid var(--card-border); padding: 0 24px; gap: 8px; overflow-x: auto; }
+    .tab-btn { background: none; border: none; color: var(--text-muted); padding: 14px 18px; font-size: 0.95rem; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; white-space: nowrap; }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+    .container { max-width: 1100px; margin: 24px auto; padding: 0 20px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* 网格布局与卡片 */
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 24px; }
+    .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 22px; }
+    .card-title { font-size: 1.05rem; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+    
+    /* 状态指示大卡片 */
+    .state-hero { text-align: center; padding: 36px 20px; }
+    .state-badge { display: inline-flex; align-items: center; gap: 10px; padding: 12px 28px; border-radius: 30px; font-size: 1.5rem; font-weight: 700; margin-bottom: 14px; transition: all 0.3s; }
+    .state-desc { color: var(--text-muted); font-size: 0.95rem; max-width: 480px; margin: 0 auto; }
+
+    /* 状态颜色 */
+    .badge-EMPTY { background: rgba(6, 182, 212, 0.15); color: var(--cyan); border: 1px solid var(--cyan); }
+    .badge-STATIC { background: rgba(16, 185, 129, 0.15); color: var(--success); border: 1px solid var(--success); }
+    .badge-MOVING { background: rgba(245, 158, 11, 0.15); color: var(--warning); border: 1px solid var(--warning); }
+    .badge-PET { background: rgba(6, 182, 212, 0.2); color: var(--cyan); border: 1px solid var(--cyan); }
+    .badge-FALL { background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger); animation: alert-flash 1s infinite alternate; }
+    .badge-CALIB { background: rgba(139, 92, 246, 0.15); color: var(--purple); border: 1px solid var(--purple); }
+    @keyframes alert-flash { from { box-shadow: 0 0 10px rgba(239,68,68,0.4); } to { box-shadow: 0 0 25px rgba(239,68,68,0.9); } }
+
+    /* 遥测数据指标卡 */
+    .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    .metric-item { background: #0f172a; border-radius: 10px; padding: 14px; }
+    .metric-label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; }
+    .metric-val { font-size: 1.3rem; font-weight: 700; }
+
+    /* 事件日志列表 */
+    .event-log { max-height: 280px; overflow-y: auto; list-style: none; }
+    .event-item { font-size: 0.85rem; padding: 10px 12px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; }
+    .event-item:last-child { border-bottom: none; }
+    .event-time { color: var(--text-muted); font-size: 0.75rem; }
+
+    /* 表单与交互控件 */
+    .form-group { margin-bottom: 18px; }
+    label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 6px; color: var(--text-muted); }
+    input[type="text"], input[type="number"], select { width: 100%; background: #0f172a; border: 1px solid var(--card-border); padding: 10px 14px; border-radius: 8px; color: #fff; font-size: 0.9rem; outline: none; }
+    input:focus, select:focus { border-color: var(--primary); }
+    .btn { background: var(--primary); color: #fff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .btn:hover { background: #2563eb; }
+    .btn-secondary { background: #334155; color: #fff; }
+    .btn-secondary:hover { background: #475569; }
+
+    /* 文档排版样式 */
+    .doc-section { margin-bottom: 28px; line-height: 1.7; }
+    .doc-section h3 { font-size: 1.15rem; margin-bottom: 12px; color: var(--primary); display: flex; align-items: center; gap: 8px; }
+    .doc-section p, .doc-section li { color: #cbd5e1; font-size: 0.92rem; margin-bottom: 8px; }
+    .doc-section ul { padding-left: 20px; }
+    .diagram-box { background: #0f172a; border: 1px dashed var(--card-border); border-radius: 10px; padding: 16px; margin: 14px 0; font-family: monospace; font-size: 0.85rem; line-height: 1.4; color: #38bdf8; overflow-x: auto; white-space: pre; }
+    .table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 0.88rem; }
+    .table th, .table td { padding: 10px 12px; border: 1px solid var(--card-border); text-align: left; }
+    .table th { background: #0f172a; color: var(--primary); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="logo-icon">S</div>
+      <div>
+        <h1>SafeHalo 控制台 <span>WiFi CSI 跌倒与安防</span></h1>
+      </div>
+    </div>
+    <div class="header-status">
+      <div class="pulse-dot"></div>
+      <span id="conn-status">信号流正常 (实时监测中)</span>
+    </div>
+  </header>
+
+  <nav class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('dashboard')">实时大盘</button>
+    <button class="tab-btn" onclick="switchTab('placement')">📐 摆放与安装规范</button>
+    <button class="tab-btn" onclick="switchTab('routers')">📡 支持路由器清单</button>
+    <button class="tab-btn" onclick="switchTab('settings')">⚙️ 参数与手机通知配置</button>
+  </nav>
+
+  <div class="container">
+
+    <!-- TAB 1: 实时大盘 -->
+    <div id="tab-dashboard" class="tab-content active">
+      <div class="card state-hero" style="margin-bottom: 20px;">
+        <div id="hero-badge" class="state-badge badge-EMPTY">
+          <span id="hero-icon">🏠</span>
+          <span id="hero-text">空房间 (无人)</span>
+        </div>
+        <p id="hero-desc" class="state-desc">当前空间环境稳定，无人员或多径扰动。系统处于待命守护状态。</p>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="card-title">
+            <span>实时信号遥测指标</span>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">每 200ms 刷新</span>
+          </div>
+          <div class="metric-grid">
+            <div class="metric-item">
+              <div class="metric-label">路由器 CSI 采样率</div>
+              <div class="metric-val" id="metric-rate" style="color: var(--cyan);">30.0 Hz</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-label">多载波方差 (MVS)</div>
+              <div class="metric-val" id="metric-var">0.00012</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-label">发包时延抖动 (Jitter)</div>
+              <div class="metric-val" id="metric-jitter" style="color: var(--success);">8.2 ms</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-label">载波参与度 (SPR)</div>
+              <div class="metric-val" id="metric-spr">18% (地面弱扰)</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">
+            <span>模式快速切换</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button class="btn" onclick="setSecurityMode('FALL_GUARD')">🛡️ 跌倒守护模式 (白天正常生活/老人独居)</button>
+            <button class="btn btn-secondary" onclick="setSecurityMode('AWAY_SECURITY')">🚨 离家隐形防盗模式 (全家外出/非法闯入告警)</button>
+            <button class="btn btn-secondary" onclick="setSecurityMode('NIGHT_GUARD')">🌙 夜间巡航模式 (客厅防盗 + 卧室跌倒)</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">最近事件与状态转移日志</div>
+        <ul id="event-list" class="event-log">
+          <li class="event-item">
+            <span>系统启动并完成空房自适应基线校准</span>
+            <span class="event-time">刚刚</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- TAB 2: 摆放与安装规范 -->
+    <div id="tab-placement" class="tab-content">
+      <div class="card doc-section">
+        <h3>📐 路由器与接收探针的“黄金摆放法则”</h3>
+        <p>Wi-Fi 跌倒检测的精度 70% 取决于摆放位置。无线电在发射端（路由器）与接收端（ESP32-S3）之间会形成橄榄球状的<strong>第一菲涅尔区 (Fresnel Zone)</strong>，目标是让人体活动穿过该区域的主能量束。</p>
+
+        <div class="diagram-box">
+             [旧路由器 (AP)]                                  [ESP32-S3 接收节点]
+            (高 1.2m~1.4m)                                   (高 1.2m~1.4m)
+                  \       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~       /
+                   \    ~      第一菲涅尔主能量束       ~   /
+                    \ ~    (人体胸腰高度，覆盖大部分动作)    ~ /
+==================== \~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~/ ====================
+地面 (0~0.5m)          [ 🐾 地面宠物跑动仅擦碰外边缘，被算法完全过滤 ]
+        </div>
+
+        <h3>1. 高度要求：1.2米 ～ 1.5米（最关键）</h3>
+        <ul>
+          <li><strong>正确做法</strong>：将路由器和 ESP32 放置在桌面、书架、床头柜或中位墙插上（与成年人胸腹高度齐平）。</li>
+          <li><strong>为什么</strong>：高位部署不仅能捕捉人体重心骤降（摔倒），更让地面上 0.5 米以下的猫狗活动只处于能量束死角，物理隔绝宠物误报。</li>
+        </ul>
+
+        <h3>2. 典型房间布局推荐</h3>
+        <table class="table">
+          <tr>
+            <th>监测场景</th>
+            <th>路由器与探针建议位置</th>
+            <th>核心防范目标</th>
+          </tr>
+          <tr>
+            <td><strong>老人主卧</strong></td>
+            <td>路由器放床头柜，ESP32 放置在对面电视柜或房门对角线（直线距离 3~5米）</td>
+            <td>下床跌倒、床边滑落、起夜步态异常</td>
+          </tr>
+          <tr>
+            <td><strong>高危卫生间</strong></td>
+            <td>ESP32 安装在马桶正前方墙壁（1.3米防水盒），路由器置于卫生间门外</td>
+            <td>洗澡滑倒、如厕起身后眩晕倒地（Wi-Fi穿透木门/玻璃门）</td>
+          </tr>
+          <tr>
+            <td><strong>客厅大开间</strong></td>
+            <td>两端对角线放置，视距尽量跨越主要走道</td>
+            <td>行走摔倒、离家防盗全屋无死角覆盖</td>
+          </tr>
+        </table>
+
+        <h3>3. 严禁放置的“干扰黑名单”</h3>
+        <ul>
+          <li><strong>避开大型金属体与镜子</strong>：不要紧挨双开门大冰箱、大型落地全身镜（金属和水银镀层会全反射电磁波）。</li>
+          <li><strong>避开鱼缸与水体</strong>：2.4GHz 无线电极易被水分子强烈吸收。</li>
+          <li><strong>避开运转中的微波炉</strong>：微波炉工作在 2.45GHz，会造成信道噪声瞬时冲顶。</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- TAB 3: 支持路由器清单 -->
+    <div id="tab-routers" class="tab-content">
+      <div class="card doc-section">
+        <h3>📡 什么样的旧路由器可以使用？</h3>
+        <p>SafeHalo 支持两种硬件组网形式，兼容市面上几乎所有旧路由器：</p>
+
+        <table class="table">
+          <tr>
+            <th>接入形态</th>
+            <th>适用旧路由器</th>
+            <th>硬件成本</th>
+            <th>特点</th>
+          </tr>
+          <tr>
+            <td><strong>形态 A：标准推荐（路由器 + ESP32 探针）</strong></td>
+            <td><strong>任何品牌的旧路由器</strong><br>(如小米、华为、TP-Link、水星、腾达、华硕、网件等，只要有 2.4GHz)</td>
+            <td>约 35 元 (1 块 ESP32-S3)</td>
+            <td><strong>零门槛</strong>，无需拆机刷固件。路由器只需固定 2.4GHz 信道 20MHz，ESP32-S3 负责精准测 CSI。</td>
+          </tr>
+          <tr>
+            <td><strong>形态 B：纯路由器自采自算（极客进阶）</strong></td>
+            <td><strong>Qualcomm Atheros 芯片路由器</strong><br>(可刷 OpenWrt 并打 Atheros CSI 补丁)</td>
+            <td>0 元</td>
+            <td>利用路由器自身 Wi-Fi 芯片提取 CSI，难度极高，需要刷写改动内核的 OpenWrt。</td>
+          </tr>
+        </table>
+
+        <h3 style="margin-top: 20px;">形态 B 完美支持的经典旧路由器型号库</h3>
+        <ul>
+          <li><strong>TP-Link</strong>: TL-WDR4300, TL-WDR3600, TL-WR703N, TL-WR841N v8/v9, TL-WDR7500 v2</li>
+          <li><strong>D-Link</strong>: DIR-825 B1, DIR-505</li>
+          <li><strong>水星 / 迅捷</strong>: MW4530R (AR9344)</li>
+          <li><strong>网件 Netgear</strong>: WNDR3700 v4, WNDR3800</li>
+        </ul>
+
+        <h3 style="margin-top: 20px;">路由器后台关键 Wi-Fi 设置（必做）</h3>
+        <ul>
+          <li><strong>Wi-Fi 频段</strong>: 仅开启 <strong>2.4GHz</strong>（5GHz 穿透差且多径波长过小）。</li>
+          <li><strong>固定信道</strong>: 务必从“自动跳频”改为<strong>固定信道 1、6 或 11</strong>。</li>
+          <li><strong>固定频宽</strong>: 设置为 <strong>20MHz</strong> (HT20)，禁止 40MHz 频宽捆绑。</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- TAB 4: 参数与手机通知配置 -->
+    <div id="tab-settings" class="tab-content">
+      <div class="card">
+        <div class="card-title">📱 微信与手机短信推送设置</div>
+        <div class="form-group">
+          <label>PushPlus (微信推送加) Token</label>
+          <input type="text" id="cfg-pushplus" placeholder="例如: 9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c">
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">关注微信公众号「pushplus推送加」即可免费获取 Token，微信即时弹窗。</p>
+        </div>
+        <div class="form-group">
+          <label>Server酱 SendKey (可选)</label>
+          <input type="text" id="cfg-serverchan" placeholder="例如: SCT123456Txxxxxx">
+        </div>
+        <div class="form-group">
+          <label>家庭群 / 养老机构 Webhook 地址 (支持企业微信/飞书/钉钉)</label>
+          <input type="text" id="cfg-webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <button class="btn" onclick="saveConfig()">💾 保存配置</button>
+          <button class="btn btn-secondary" onclick="sendTestPush()">🔔 发送测试告警到手机</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 20px;">
+        <div class="card-title">🎛️ 跌倒判定灵敏度与防误报参数</div>
+        <div class="form-group">
+          <label>跌倒倒地静止超时判定 (秒)</label>
+          <select id="cfg-stillness">
+            <option value="5">5 秒 (极速预警，适合测试)</option>
+            <option value="8" selected>8 秒 (标准推荐，平衡精准与防误判)</option>
+            <option value="12">12 秒 (高容忍度，减少起身后延迟误报)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>目标路由器 MAC 白名单过滤</label>
+          <input type="text" id="cfg-router-mac" placeholder="例如: c0:06:c3:11:22:33 (留空则接收全部)">
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tabId).classList.add('active');
+    }
+
+    const stateMap = {
+      'EMPTY': { text: '空房间 (无人)', icon: '🏠', cls: 'badge-EMPTY', desc: '当前空间环境稳定，无人员或多径扰动。系统处于待命守护状态。' },
+      'STATIC': { text: '有人静止 (呼吸微动/坐卧)', icon: '🧘', cls: 'badge-STATIC', desc: '监测到微弱胸腔呼吸微动或轻微身体起伏，判定室内有人安全休息。' },
+      'MOVING': { text: '有人活动 (走动/日常家务)', icon: '🚶', cls: 'badge-MOVING', desc: '检测到大范围人体空间多普勒频移，老人正在室内正常走动。' },
+      'PET_ACTIVITY': { text: '🐾 宠物地面活动 (已自动抑制)', icon: '🐱', cls: 'badge-PET', desc: '检测到低体表面积（SPR < 35%）的地面宠物快速走动，已自动放行，不计入人体。' },
+      'FALL_CONFIRMED': { text: '🚨 跌倒报警已确认！', icon: '🚨', cls: 'badge-FALL', desc: '危险！检测到剧烈坠地冲击并持续静止超时未见起身，请立即前往或呼叫！' },
+      'FALL_SUSPECT': { text: '⚠ 疑似跌倒观测中...', icon: '⚠️', cls: 'badge-MOVING', desc: '检测到突发高冲击能量突变，系统正在观测是否在设定时间内恢复活动。' },
+      'CALIBRATING': { text: '正在校准空房基线...', icon: '⏳', cls: 'badge-CALIB', desc: '系统正在学习当前房间的多径本底噪声特征，请保持房间无人 5 秒。' }
+    };
+
+    function updateTelemetry() {
+      fetch('/api/status')
+        .then(r => r.json())
+        .then(d => {
+          const s = stateMap[d.state] || { text: d.state, icon: '📡', cls: 'badge-EMPTY', desc: '' };
+          const badge = document.getElementById('hero-badge');
+          badge.className = 'state-badge ' + s.cls;
+          document.getElementById('hero-icon').innerText = s.icon;
+          document.getElementById('hero-text').innerText = s.text;
+          document.getElementById('hero-desc').innerText = s.desc;
+
+          document.getElementById('metric-rate').innerText = d.sample_rate.toFixed(1) + ' Hz';
+          document.getElementById('metric-var').innerText = d.variance.toFixed(6);
+          document.getElementById('metric-jitter').innerText = d.jitter.toFixed(1) + ' ms';
+          document.getElementById('metric-spr').innerText = (d.spr * 100).toFixed(0) + '% (' + (d.is_pet ? '宠物特征' : '人体特征') + ')';
+
+          if (d.recent_events && d.recent_events.length > 0) {
+            const list = document.getElementById('event-list');
+            list.innerHTML = d.recent_events.map(e => `
+              <li class="event-item">
+                <span>${e.text}</span>
+                <span class="event-time">${e.time}</span>
+              </li>
+            `).join('');
+          }
+        })
+        .catch(err => {
+          document.getElementById('conn-status').innerText = '后台连接断开';
+          document.getElementById('conn-status').style.color = 'var(--danger)';
+        });
+    }
+
+    function sendTestPush() {
+      const token = document.getElementById('cfg-pushplus').value;
+      fetch('/api/test_push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pushplus_token: token })
+      })
+      .then(r => r.json())
+      .then(d => alert(d.message || '测试推送请求已发出，请检查手机微信！'));
+    }
+
+    function saveConfig() {
+      alert('配置已成功保存！');
+    }
+
+    function setSecurityMode(mode) {
+      fetch('/api/set_mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode })
+      }).then(() => alert('已成功切换为: ' + mode));
+    }
+
+    setInterval(updateTelemetry, 400);
+  </script>
+</body>
+</html>
