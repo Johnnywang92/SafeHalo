@@ -30,6 +30,7 @@ from .logger import logger
 from .mmwave_detector import MMWaveDetector, RadarFallFeatures, RadarHumanState
 from .mmwave_parser import RadarFrame, UnifiedRadarParser
 from .signal_filter import RouterSignalFilter
+from .neighbor_filter import NeighborSignalFilter
 
 
 class FusedState(enum.Enum):
@@ -74,6 +75,10 @@ class DualSensorFusionEngine:
         self.on_fall_alarm = on_fall_alarm
 
         # 1. Wi-Fi CSI 感知链路
+        self.neighbor_filter = NeighborSignalFilter(
+            home_bssids=[self.router_mac] if self.router_mac else None,
+            rssi_floor=-72,
+        )
         self.csi_filter = RouterSignalFilter()
         self.csi_extractor = RouterFeatureExtractor(window_size=30)
         self.csi_detector = RouterCSIDetector()
@@ -108,12 +113,13 @@ class DualSensorFusionEngine:
 
     def feed_csi_packet(self, packet: CSIPacket, timestamp: Optional[float] = None) -> Optional[FusedPerceptionResult]:
         """接收已解析的 CSIPacket"""
-        if self.router_mac:
-            incoming = packet.mac.lower().replace("-", ":")
-            if incoming and incoming != self.router_mac:
-                return None
-
         ts = timestamp or time.time()
+
+        # 邻居 Wi-Fi 信号多维拦截过滤
+        filter_res = self.neighbor_filter.filter_packet(packet, timestamp=ts)
+        if not filter_res.allowed:
+            return None
+
         self.last_csi_update = ts
 
         # 滤波与特征提取

@@ -10,11 +10,13 @@ from .csi_parser import CSIParser, CSIPacket
 from .signal_filter import RouterSignalFilter
 from .feature_extractor import RouterFeatureExtractor, CSIFeatures
 from .detector import RouterCSIDetector, HumanState
+from .neighbor_filter import NeighborSignalFilter, FilterResult
 
 class RouterCSIEngine:
     def __init__(
         self,
         router_mac: Optional[str] = None,
+        rssi_floor: int = -72,
         window_size: int = 30,
         calibration_seconds: float = 4.0,
         fall_stillness_seconds: float = 5.0,
@@ -22,10 +24,15 @@ class RouterCSIEngine:
         on_fall_alarm: Optional[Callable[[CSIFeatures], None]] = None,
     ):
         """
-        :param router_mac: 路由器的 BSSID / MAC 地址 (如 "aa:bb:cc:dd:ee:ff")，若提供则自动过滤非路由器报文
+        :param router_mac: 路由器的 BSSID / MAC 地址 (如 "aa:bb:cc:dd:ee:ff")，若提供则自动锁定家网
+        :param rssi_floor: 穿墙信号强度门限 (默认 -72 dBm)，低于该门限判定为邻居墙外弱信号自动丢弃
         """
         self.router_mac = router_mac.lower().replace("-", ":") if router_mac else None
         self.parser = CSIParser()
+        self.neighbor_filter = NeighborSignalFilter(
+            home_bssids=[self.router_mac] if self.router_mac else None,
+            rssi_floor=rssi_floor,
+        )
         self.filter = RouterSignalFilter()
         self.extractor = RouterFeatureExtractor(window_size=window_size)
         self.detector = RouterCSIDetector(
@@ -51,21 +58,19 @@ class RouterCSIEngine:
             self.dropped_packets += 1
             return None
 
-        # 路由器 MAC 白名单校验 (纯路由器方案核心防护: 避免邻居或手机发包干扰)
-        if self.router_mac:
-            incoming_mac = packet.mac.lower().replace("-", ":")
-            if incoming_mac and incoming_mac != self.router_mac:
-                # 丢弃非指定路由器的包
-                self.dropped_packets += 1
-                return None
-
-        self.matched_router_packets += 1
-
         # 时间戳获取 (优先使用系统物理时钟，其次使用 ESP32 内部微秒时钟)
         if timestamp_override is not None:
             ts = timestamp_override
         else:
             ts = time.time()
+
+        # 多维邻居 Wi-Fi 与空间隔墙信号过滤 (白名单 + RSSI 边界 + 混凝土高频吸收指纹)
+        filter_res = self.neighbor_filter.filter_packet(packet, timestamp=ts)
+        if not filter_res.allowed:
+            self.dropped_packets += 1
+            return None
+
+        self.matched_router_packets += 1
 
         # 1. 信号滤波 & 消除路由器 AGC 抖动
         clean_amps = self.filter.process(packet.amplitudes)

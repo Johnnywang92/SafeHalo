@@ -376,6 +376,9 @@ class SafeHaloSupervisor:
                         shared_system_state["sample_rate"] = feats.sample_rate_hz
                         shared_system_state["jitter"] = feats.packet_interval_jitter
 
+                    if self.engine.total_packets_received % 80 == 0:
+                        shared_system_state["neighbor_filter"] = self.engine.neighbor_filter.get_spectrum_analysis()
+
             except Exception as e:
                 logger.warning(f"数据读取中断或硬件掉电: {e}，正在进入自愈重连流程...")
                 shared_system_state["state"] = "ROUTER_OFFLINE"

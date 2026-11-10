@@ -45,6 +45,12 @@ shared_system_state = {
         "active_anomalies": [],
         "has_anomaly": False,
     },
+    "neighbor_filter": {
+        "channel_purity_percent": 100.0,
+        "rejected_neighbor_packets": 0,
+        "neighbor_nodes_detected": 0,
+        "channel_advice": "当前无线信道纯净，无显著同频邻居串扰。",
+    },
     "recent_events": [
         {"time": datetime.now().strftime("%H:%M:%S"), "text": "SafeHalo 系统启动，完成基线自适应校准"}
     ]
@@ -139,6 +145,11 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
         # 1.2 作息画像与偏离异常分析接口 (公开)
         if self.path == "/api/routine":
             self._send_json(200, shared_system_state.get("routine", {}))
+            return
+
+        # 1.3 邻居 Wi-Fi 隔离与信道纯净度接口 (公开)
+        if self.path == "/api/neighbor_spectrum":
+            self._send_json(200, shared_system_state.get("neighbor_filter", {}))
             return
 
         # --- 以下接口均需要登录 ---

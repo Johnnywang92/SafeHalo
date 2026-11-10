@@ -175,6 +175,17 @@
                 <span>融合决策: <strong id="metric-fused-state" style="color: var(--success);">单模运行</strong></span>
               </div>
             </div>
+            <div class="metric-item" style="grid-column: span 2; border: 1px solid #334155;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span class="metric-label" style="font-weight: 600; color: #a78bfa;">🛡️ 邻居 Wi-Fi 穿墙干扰隔离引擎</span>
+                <span id="metric-neighbor-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(16,185,129,0.2); color: var(--success);">纯净度 100%</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.88rem;">
+                <span>已拦截邻居包: <strong id="metric-neighbor-dropped" style="color: #fff;">0</strong></span>
+                <span>发现邻区AP: <strong id="metric-neighbor-nodes" style="color: #fff;">0 处</strong></span>
+                <span>信道建议: <strong id="metric-neighbor-advice" style="color: #38bdf8;">信道优良</strong></span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -935,6 +946,27 @@ http://100.x.x.x:8080
               rtBadge.style.color = 'var(--success)';
               alertBox.style.display = 'none';
             }
+          }
+
+          // 邻居干扰隔离指标更新
+          if (d.neighbor_filter) {
+            const nf = d.neighbor_filter;
+            const purity = nf.channel_purity_percent !== undefined ? nf.channel_purity_percent : 100;
+            const badge = document.getElementById('metric-neighbor-badge');
+            badge.innerText = '纯净度 ' + purity.toFixed(1) + '%';
+            if (purity < 75) {
+              badge.style.background = 'rgba(239,68,68,0.2)';
+              badge.style.color = 'var(--danger)';
+            } else if (purity < 90) {
+              badge.style.background = 'rgba(234,179,8,0.2)';
+              badge.style.color = 'var(--warning)';
+            } else {
+              badge.style.background = 'rgba(16,185,129,0.2)';
+              badge.style.color = 'var(--success)';
+            }
+            document.getElementById('metric-neighbor-dropped').innerText = nf.rejected_neighbor_packets || 0;
+            document.getElementById('metric-neighbor-nodes').innerText = (nf.neighbor_nodes_detected || 0) + ' 处';
+            document.getElementById('metric-neighbor-advice').innerText = (purity >= 88 ? '信道优良' : '建议避让切换');
           }
 
           if (d.recent_events && d.recent_events.length > 0) {
