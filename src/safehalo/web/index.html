@@ -343,6 +343,7 @@
   </header>
 
   <nav class="nav-tabs">
+    <button class="tab-btn" onclick="switchTab('product')">✨ 产品介绍与原理</button>
     <button class="tab-btn active" onclick="switchTab('dashboard')">实时大盘</button>
     <button class="tab-btn" onclick="switchTab('remote')">🌐 远程访问与穿透</button>
     <button class="tab-btn" onclick="switchTab('placement')">📐 摆放与安装规范</button>
@@ -353,6 +354,114 @@
   </nav>
 
   <div class="container">
+
+    <!-- TAB 0: 产品介绍与原理 -->
+    <div id="tab-product" class="tab-content">
+      <!-- 极光 Hero 横幅 -->
+      <div class="card" style="background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 50%, #f5f3ff 100%); border: 1px solid #bfdbfe; margin-bottom: 24px; padding: 36px 32px; text-align: center; position: relative; overflow: hidden;">
+        <div style="display: inline-block; background: #dbeafe; color: #1d4ed8; padding: 4px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 700; margin-bottom: 12px;">
+          🚀 无感隐形居家守护 · 新一代 Wi-Fi CSI 射频雷达技术
+        </div>
+        <h2 style="font-size: 2rem; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; margin-bottom: 12px;">
+          不用摄像头，把家中 Wi-Fi 变成全屋隐形守护光环
+        </h2>
+        <p style="color: #475569; font-size: 1.05rem; max-width: 720px; margin: 0 auto 24px auto; line-height: 1.6;">
+          SafeHalo 利用普通家用路由器发射的 2.4GHz 无线电电波微动，全屋<strong>零摄像头、不拍任何隐私画面、无需老人佩戴任何手环</strong>，实现穿墙毫米级跌倒检测与日常作息异常预警。
+        </p>
+        <div style="display: flex; justify-content: center; gap: 14px; flex-wrap: wrap;">
+          <button class="btn" style="padding: 12px 24px; font-size: 0.95rem;" onclick="openPlacementModal()">🧭 开启 3 步安心守护向导</button>
+          <button class="btn btn-secondary" style="padding: 12px 24px; font-size: 0.95rem;" onclick="switchTab('dashboard')">进入实时大盘 ➔</button>
+        </div>
+      </div>
+
+      <!-- 四大核心技术优势 (Bento Grid) -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; margin-bottom: 26px;">
+        <div class="card" style="border-top: 4px solid #0284c7;">
+          <div style="font-size: 2rem; margin-bottom: 12px;">🔒</div>
+          <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">100% 隐私零冒犯</h4>
+          <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
+            彻底摒弃令人反感的摄像头与录音麦克风。即便在卫浴淋浴、主卧睡眠等最私密的极高危场景，也能安心全天候守护，呵护长辈体面与尊严。
+          </p>
+        </div>
+
+        <div class="card" style="border-top: 4px solid #10b981;">
+          <div style="font-size: 2rem; margin-bottom: 12px;">⌚</div>
+          <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">零穿戴、零充电负担</h4>
+          <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
+            老人经常忘记佩戴手环或忘记充电。SafeHalo 就像空气中的雷达，只要人在房间走动、坐卧或起夜，电波扰动即时感知，真正实现“用户零操作”。
+          </p>
+        </div>
+
+        <div class="card" style="border-top: 4px solid #8b5cf6;">
+          <div style="font-size: 2rem; margin-bottom: 12px;">⚡</div>
+          <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">四段式闭环防误扰</h4>
+          <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
+            严格遵循「冲击 ➔ 地面静止 ➔ 本地轻柔质询 ➔ 超时确诊报警」闭环。坐地穿鞋、掉枕头等情况在本地轻声询问、挥手即消，绝不无端惊扰子女。
+          </p>
+        </div>
+
+        <div class="card" style="border-top: 4px solid #f59e0b;">
+          <div style="font-size: 2rem; margin-bottom: 12px;">💡</div>
+          <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">旧物焕新·百元级极低成本</h4>
+          <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
+            无需更换昂贵专用设备，家里的旧 TP-Link、小米等任意 2.4G 路由器均可作为发射源，搭配仅 30 余元的 ESP32-S3 探针即可满血运行。
+          </p>
+        </div>
+      </div>
+
+      <!-- 技术原理可视化工作流 -->
+      <div class="card doc-section" style="margin-bottom: 24px;">
+        <h3>🔬 物理原理：Wi-Fi CSI 是如何“看见”动作的？</h3>
+        <p>
+          当路由器发射 Wi-Fi 信号时，电磁波在室内各墙面、天花板和家具之间反弹，形成复杂的<strong>空间多径微电波场（菲涅尔区）</strong>。
+          SafeHalo 提取底层网卡芯片物理层的 <strong>CSI（信道状态信息 Channel State Information）</strong>，测量多达 52 个载波的振幅与相位变化：
+        </p>
+
+        <div class="diagram-box">
+┌─────────────────┐       Wi-Fi 无线电波散射微扰动       ┌──────────────────┐
+│  家用旧无线路由器 │  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~>  │ ESP32-S3 接收节点 │
+│ (2.4GHz 发射节点) │       (人体走动 / 呼吸 / 摔倒)       │ (物理层 CSI 解调) │
+└─────────────────┘                                      └────────┬─────────┘
+                                                                  │ 30Hz ~ 100Hz 载波流
+                                                                  ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│                     SafeHalo 核心感知与生理诊断引擎                        │
+├──────────────────────────┬─────────────────────────┬──────────────────────┤
+│ 1. 邻居隔离与多径滤波     │ 2. 空间动态重心解调     │ 3. 地面胸腔微动扫描  │
+│ (Hampel 去噪 + 宠物过滤) │ (剧烈冲击尖峰方差检测)  │ (100Hz 激振探测呼吸) │
+└──────────────────────────┴─────────────┬───────────┴──────────────────────┘
+                                         │ 四段式闭环确认
+                                         ▼
+┌───────────────────────────────────────────────────────────────────────────┐
+│               多端触达：本地轻柔质询 / 手机微信 / 微信小程序卡片          │
+└───────────────────────────────────────────────────────────────────────────┘
+        </div>
+
+        <h3 style="margin-top: 24px;">🎯 典型应用守护场景</h3>
+        <table class="table">
+          <tr>
+            <th>应用场景</th>
+            <th>痛点与传统方案局限</th>
+            <th>SafeHalo 守护方案</th>
+          </tr>
+          <tr>
+            <td><strong>独居高龄长辈看护</strong></td>
+            <td>长辈排斥摄像头装在家中；常忘记戴手环</td>
+            <td>无感射频感知，起居规律自画像；早起异常未起时微信温和提醒</td>
+          </tr>
+          <tr>
+            <td><strong>卫浴湿滑防摔高危区</strong></td>
+            <td>水汽水雾阻挡镜头，隐私绝对禁区</td>
+            <td>Wi-Fi 穿透木门/玻璃门；自带水流扰动抗噪阻尼，跌倒 3 秒快速预警</td>
+          </tr>
+          <tr>
+            <td><strong>全家外出·隐形防盗</strong></td>
+            <td>传统门磁防君子不防翻窗；红外容易被宠物误触</td>
+            <td>一键切换「离家防盗模式」，多载波方差灵敏捕捉全屋异动破门</td>
+          </tr>
+        </table>
+      </div>
+    </div>
 
     <!-- TAB 1: 实时大盘 -->
     <div id="tab-dashboard" class="tab-content active">
