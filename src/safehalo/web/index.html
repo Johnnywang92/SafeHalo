@@ -6,43 +6,45 @@
   <title>SafeHalo - Wi-Fi CSI 跌倒守护与隐形安防控制台</title>
   <style>
     :root {
-      --bg: #090d16;
-      --bg-gradient: radial-gradient(circle at 15% 15%, rgba(59, 130, 246, 0.12) 0%, transparent 40%),
-                     radial-gradient(circle at 85% 20%, rgba(139, 92, 246, 0.12) 0%, transparent 45%),
-                     radial-gradient(circle at 50% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 50%),
-                     #090d16;
-      --card-bg: rgba(18, 24, 38, 0.72);
-      --card-hover: rgba(26, 34, 52, 0.85);
-      --card-border: rgba(255, 255, 255, 0.08);
-      --card-border-glow: rgba(99, 102, 241, 0.35);
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-soft: #cbd5e1;
-      --primary: #3b82f6;
-      --primary-gradient: linear-gradient(135deg, #38bdf8 0%, #6366f1 50%, #a855f7 100%);
-      --success: #10b981;
-      --success-glow: rgba(16, 185, 129, 0.25);
-      --warning: #f59e0b;
-      --danger: #f43f5e;
-      --purple: #8b5cf6;
-      --cyan: #06b6d4;
+      /* 升级为现代年轻化、明亮科技感配色（苹果极简家居风） */
+      --bg: #f8fafc;
+      --bg-gradient: radial-gradient(circle at 12% 15%, rgba(56, 189, 248, 0.08) 0%, transparent 45%),
+                     radial-gradient(circle at 88% 18%, rgba(129, 140, 248, 0.08) 0%, transparent 45%),
+                     radial-gradient(circle at 50% 85%, rgba(52, 211, 153, 0.06) 0%, transparent 50%),
+                     #f8fafc;
+      --card-bg: #ffffff;
+      --card-hover: #ffffff;
+      --card-border: #e2e8f0;
+      --card-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.05), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
+      --card-shadow-hover: 0 20px 30px -10px rgba(15, 23, 42, 0.08), 0 10px 15px -5px rgba(15, 23, 42, 0.04);
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-soft: #334155;
+      --primary: #2563eb;
+      --primary-gradient: linear-gradient(135deg, #0284c7 0%, #4f46e5 100%);
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #e11d48;
+      --purple: #7c3aed;
+      --cyan: #0284c7;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
     body { background: var(--bg-gradient); color: var(--text); padding-bottom: 70px; min-height: 100vh; -webkit-font-smoothing: antialiased; }
 
-    /* 顶部玻璃拟态导航栏 */
+    /* 顶部清爽导航栏 */
     header {
-      background: rgba(13, 18, 30, 0.75);
+      background: rgba(255, 255, 255, 0.85);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
       border-bottom: 1px solid var(--card-border);
-      padding: 14px 28px;
+      padding: 14px 32px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       position: sticky;
       top: 0;
       z-index: 100;
+      box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
     }
     .brand { display: flex; align-items: center; gap: 14px; }
     .logo-icon {
@@ -55,157 +57,150 @@
       font-size: 20px;
       font-weight: 800;
       color: #fff;
-      box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
     }
-    .brand h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.3px; display: flex; align-items: center; gap: 8px; }
+    .brand h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.3px; display: flex; align-items: center; gap: 8px; color: #0f172a; }
     .brand span.tag {
       font-size: 0.75rem;
-      color: #38bdf8;
-      background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: #0284c7;
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
       padding: 2px 10px;
       border-radius: 20px;
-      font-weight: 500;
+      font-weight: 600;
     }
     .header-status {
-      display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #34d399;
-      background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25);
-      padding: 5px 12px; border-radius: 20px;
+      display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: #059669;
+      background: #ecfdf5; border: 1px solid #a7f3d0;
+      padding: 6px 14px; border-radius: 20px; font-weight: 600;
     }
-    .pulse-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; box-shadow: 0 0 10px #10b981; animation: pulse 2s infinite; }
+    .pulse-dot { width: 8px; height: 8px; background: #059669; border-radius: 50%; box-shadow: 0 0 8px #059669; animation: pulse 2s infinite; }
     @keyframes pulse { 0% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.15); } 100% { opacity: 0.4; transform: scale(0.9); } }
     
-    /* 便签式导航选项卡 */
+    /* 现代轻量选项卡 */
     .nav-tabs {
       display: flex;
-      background: rgba(13, 18, 30, 0.5);
+      background: rgba(255, 255, 255, 0.7);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--card-border);
-      padding: 0 28px;
+      padding: 0 32px;
       gap: 6px;
       overflow-x: auto;
     }
     .tab-btn {
-      background: none; border: none; color: var(--text-muted); padding: 14px 18px;
+      background: none; border: none; color: #64748b; padding: 14px 18px;
       font-size: 0.92rem; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1); white-space: nowrap; border-radius: 8px 8px 0 0;
+      transition: all 0.2s ease; white-space: nowrap; border-radius: 8px 8px 0 0;
     }
-    .tab-btn:hover { color: #f8fafc; background: rgba(255, 255, 255, 0.03); }
+    .tab-btn:hover { color: #0f172a; background: rgba(0, 0, 0, 0.03); }
     .tab-btn.active {
-      color: #38bdf8;
-      border-bottom-color: #38bdf8;
+      color: #2563eb;
+      border-bottom-color: #2563eb;
       font-weight: 600;
-      background: rgba(56, 189, 248, 0.05);
+      background: rgba(37, 99, 235, 0.06);
     }
 
     .container { max-width: 1120px; margin: 28px auto; padding: 0 24px; }
     .tab-content { display: none; }
-    .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+    .tab-content.active { display: block; animation: fadeIn 0.25s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-    /* Bento 便当盒圆角玻璃卡片 */
+    /* Bento 便当盒圆角浅色卡片 */
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 22px; margin-bottom: 24px; }
     .card {
       background: var(--card-bg);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
       border: 1px solid var(--card-border);
       border-radius: 18px;
       padding: 24px;
-      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
-      transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+      box-shadow: var(--card-shadow);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .card:hover {
-      border-color: rgba(255, 255, 255, 0.14);
+      box-shadow: var(--card-shadow-hover);
+      border-color: #cbd5e1;
+      transform: translateY(-2px);
     }
     .card-title {
-      font-size: 1.05rem; font-weight: 600; margin-bottom: 18px;
+      font-size: 1.05rem; font-weight: 700; margin-bottom: 18px;
       display: flex; align-items: center; justify-content: space-between;
-      color: #f1f5f9;
+      color: #0f172a;
     }
     
-    /* 核心状态 Hero 大卡片（流光呼吸） */
+    /* 核心状态 Hero 大卡片 */
     .state-hero {
       text-align: center;
       padding: 38px 20px;
-      background: radial-gradient(circle at center, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%);
-      border: 1px solid var(--card-border);
+      background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+      border: 1px solid #e2e8f0;
       position: relative;
       overflow: hidden;
-    }
-    .state-hero::before {
-      content: '';
-      position: absolute;
-      top: -50%; left: -50%; width: 200%; height: 200%;
-      background: radial-gradient(circle, rgba(56, 189, 248, 0.08) 0%, transparent 65%);
-      pointer-events: none;
     }
     .state-badge {
       display: inline-flex;
       align-items: center;
       gap: 12px;
-      padding: 14px 34px;
+      padding: 12px 32px;
       border-radius: 40px;
-      font-size: 1.55rem;
+      font-size: 1.45rem;
       font-weight: 700;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
       transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.3);
+      box-shadow: 0 6px 18px -4px rgba(15, 23, 42, 0.08);
     }
     .state-desc { color: var(--text-muted); font-size: 0.95rem; max-width: 520px; margin: 0 auto; line-height: 1.6; }
 
-    /* 状态光晕色彩 */
-    .badge-EMPTY { background: rgba(6, 182, 212, 0.12); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.4); box-shadow: 0 0 25px rgba(6, 182, 212, 0.2); }
-    .badge-STATIC { background: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); box-shadow: 0 0 25px rgba(16, 185, 129, 0.2); }
-    .badge-MOVING { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); box-shadow: 0 0 25px rgba(245, 158, 11, 0.2); }
-    .badge-PET { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
-    .badge-FALL { background: rgba(244, 63, 94, 0.2); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.5); animation: alert-glow 1.2s infinite alternate; }
-    .badge-CALIB { background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.4); }
-    @keyframes alert-glow { from { box-shadow: 0 0 15px rgba(244,63,94,0.4); transform: scale(1); } to { box-shadow: 0 0 35px rgba(244,63,94,0.8); transform: scale(1.02); } }
+    /* 状态色彩（马卡龙轻量清新色系） */
+    .badge-EMPTY { background: #ecfeff; color: #0891b2; border: 1px solid #a5f3fc; }
+    .badge-STATIC { background: #f0fdf4; color: #059669; border: 1px solid #bbf7d0; }
+    .badge-MOVING { background: #fefce8; color: #ca8a04; border: 1px solid #fef08a; }
+    .badge-PET { background: #faf5ff; color: #9333ea; border: 1px solid #e9d5ff; }
+    .badge-FALL { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; animation: alert-glow 1.2s infinite alternate; }
+    .badge-CALIB { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+    @keyframes alert-glow { from { box-shadow: 0 0 10px rgba(225,29,72,0.25); transform: scale(1); } to { box-shadow: 0 0 25px rgba(225,29,72,0.5); transform: scale(1.02); } }
 
     /* 遥测数据指标卡 */
     .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
     .metric-item {
-      background: rgba(15, 23, 42, 0.65);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: #f8fafc;
+      border: 1px solid #edf2f7;
       border-radius: 14px;
       padding: 16px;
       transition: all 0.2s ease;
     }
     .metric-item:hover {
-      background: rgba(30, 41, 59, 0.65);
-      border-color: rgba(255, 255, 255, 0.1);
+      background: #f1f5f9;
+      border-color: #cbd5e1;
     }
-    .metric-label { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; }
-    .metric-val { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.5px; }
+    .metric-label { font-size: 0.78rem; color: #64748b; margin-bottom: 6px; font-weight: 600; }
+    .metric-val { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.5px; color: #0f172a; }
 
     /* 事件日志列表 */
     .event-log { max-height: 280px; overflow-y: auto; list-style: none; }
-    .event-item { font-size: 0.86rem; padding: 12px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; align-items: center; }
+    .event-item { font-size: 0.86rem; padding: 12px 14px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; color: #334155; }
     .event-item:last-child { border-bottom: none; }
     .event-time { color: var(--text-muted); font-size: 0.76rem; font-family: monospace; }
 
-    /* 表单与交互控件（现代质感输入框与渐变按钮） */
+    /* 表单与交互控件（高质感现代输入框与纯白/渐变按钮） */
     .form-group { margin-bottom: 20px; }
-    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; color: #cbd5e1; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; color: #334155; }
     input[type="text"], input[type="password"], input[type="number"], select {
       width: 100%;
-      background: rgba(15, 23, 42, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
       padding: 12px 16px;
       border-radius: 12px;
-      color: #fff;
+      color: #0f172a;
       font-size: 0.92rem;
       outline: none;
       transition: all 0.2s ease;
     }
     input:focus, select:focus {
-      border-color: #38bdf8;
-      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
-      background: rgba(15, 23, 42, 0.95);
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+      background: #ffffff;
     }
     .btn {
-      background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
+      background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
       color: #fff;
       border: none;
       padding: 11px 20px;
@@ -213,8 +208,8 @@
       font-weight: 600;
       font-size: 0.9rem;
       cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -222,101 +217,101 @@
     }
     .btn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
-      filter: brightness(1.08);
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+      filter: brightness(1.05);
     }
     .btn-secondary {
-      background: rgba(255, 255, 255, 0.07);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: #e2e8f0;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #334155;
       box-shadow: none;
     }
     .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.12);
-      border-color: rgba(255, 255, 255, 0.2);
+      background: #e2e8f0;
+      border-color: #94a3b8;
       transform: translateY(-1px);
       filter: none;
     }
 
     /* 文档排版样式 */
     .doc-section { margin-bottom: 28px; line-height: 1.7; }
-    .doc-section h3 { font-size: 1.15rem; margin-bottom: 12px; color: #38bdf8; display: flex; align-items: center; gap: 8px; }
-    .doc-section p, .doc-section li { color: #cbd5e1; font-size: 0.92rem; margin-bottom: 8px; }
+    .doc-section h3 { font-size: 1.15rem; margin-bottom: 12px; color: #0284c7; display: flex; align-items: center; gap: 8px; font-weight: 700; }
+    .doc-section p, .doc-section li { color: #334155; font-size: 0.92rem; margin-bottom: 8px; }
     .doc-section ul { padding-left: 20px; }
     .diagram-box {
-      background: rgba(10, 15, 26, 0.85);
-      border: 1px dashed rgba(56, 189, 248, 0.3);
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
       border-radius: 14px;
       padding: 18px;
       margin: 16px 0;
       font-family: monospace;
       font-size: 0.85rem;
       line-height: 1.5;
-      color: #38bdf8;
+      color: #0369a1;
       overflow-x: auto;
       white-space: pre;
     }
     .table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.88rem; }
-    .table th, .table td { padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.08); text-align: left; }
-    .table th { background: rgba(15, 23, 42, 0.8); color: #38bdf8; font-weight: 600; }
+    .table th, .table td { padding: 12px 14px; border: 1px solid #e2e8f0; text-align: left; }
+    .table th { background: #f8fafc; color: #0284c7; font-weight: 700; }
+    .table td { color: #334155; }
 
     /* 登录与弹窗模态框 */
     .modal-overlay {
       display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(5, 8, 15, 0.82); z-index: 1000; align-items: center; justify-content: center;
+      background: rgba(15, 23, 42, 0.45); z-index: 1000; align-items: center; justify-content: center;
       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
     }
     .modal-overlay.active { display: flex; }
     .modal-box {
-      background: #111827;
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
       border-radius: 20px;
       padding: 28px;
       width: 90%;
-      max-width: 440px;
-      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65);
+      max-width: 460px;
+      box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
     }
-    .modal-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+    .modal-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; color: #0f172a; }
 
     /* 摆放与安心守护向导卡片选择样式 */
     .room-card, .height-card, .choice-card {
-      background: rgba(15, 23, 42, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
       border-radius: 14px;
       padding: 14px;
       text-align: center;
       cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .room-card:hover, .height-card:hover, .choice-card:hover {
-      border-color: rgba(56, 189, 248, 0.4);
-      background: rgba(30, 41, 59, 0.85);
+      border-color: #38bdf8;
+      background: #f0f9ff;
       transform: translateY(-2px);
     }
     .room-card.selected, .height-card.selected, .choice-card.selected {
-      border-color: #38bdf8;
-      background: rgba(56, 189, 248, 0.15);
-      box-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+      border-color: #0284c7;
+      background: #e0f2fe;
+      box-shadow: 0 0 14px rgba(2, 132, 199, 0.18);
       transform: translateY(-1px);
     }
     .wizard-step-bar { display: flex; gap: 8px; margin-bottom: 18px; }
     .wizard-step-pill {
       flex: 1; text-align: center; padding: 10px 12px; border-radius: 10px; font-size: 0.82rem;
-      background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08);
-      color: var(--text-muted); cursor: pointer; transition: all 0.2s; font-weight: 500;
+      background: #f1f5f9; border: 1px solid #e2e8f0;
+      color: #64748b; cursor: pointer; transition: all 0.2s; font-weight: 600;
     }
     .wizard-step-pill.active {
-      background: rgba(56, 189, 248, 0.18); border-color: #38bdf8; color: #38bdf8; font-weight: 700;
-      box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+      background: #e0f2fe; border-color: #0284c7; color: #0284c7; font-weight: 700;
     }
     .wizard-step-pane { display: none; }
     .wizard-step-pane.active { display: block; }
     .quick-tag {
-      display: inline-block; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px; padding: 4px 12px; font-size: 0.78rem; color: #cbd5e1; cursor: pointer; margin-right: 8px;
+      display: inline-block; background: #f1f5f9; border: 1px solid #cbd5e1;
+      border-radius: 16px; padding: 4px 12px; font-size: 0.78rem; color: #334155; cursor: pointer; margin-right: 8px;
       transition: all 0.15s ease;
     }
-    .quick-tag:hover { border-color: #38bdf8; color: #38bdf8; background: rgba(56, 189, 248, 0.15); }
+    .quick-tag:hover { border-color: #0284c7; color: #0284c7; background: #e0f2fe; }
   </style>
 </head>
 <body>
@@ -479,12 +474,12 @@
 
     <!-- TAB 2: 摆放与安装规范 -->
     <div id="tab-placement" class="tab-content">
-      <div class="card" style="background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #0284c7; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; padding: 18px 24px;">
+      <div class="card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1px solid #bae6fd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; padding: 20px 26px;">
         <div>
-          <div style="font-size: 1.1rem; font-weight: 700; color: #38bdf8; margin-bottom: 4px;">📍 当前路由器已适配场景: <span id="current-room-text">客厅</span></div>
-          <div style="font-size: 0.85rem; color: #94a3b8;" id="current-room-desc">算法已自适应优化开阔多径、大空间动能与宠物过滤</div>
+          <div style="font-size: 1.1rem; font-weight: 700; color: #0284c7; margin-bottom: 4px;">📍 当前路由器已适配场景: <span id="current-room-text">客厅</span></div>
+          <div style="font-size: 0.85rem; color: #475569;" id="current-room-desc">算法已自适应优化开阔多径、大空间动能与宠物过滤</div>
         </div>
-        <button class="btn" onclick="openPlacementModal()" style="white-space: nowrap; background: #0284c7;">🧭 重新配置摆放场景与调优算法</button>
+        <button class="btn" onclick="openPlacementModal()" style="white-space: nowrap;">🧭 重新配置摆放场景与调优算法</button>
       </div>
 
       <div class="card doc-section">
@@ -668,7 +663,7 @@
           <span>📄 safehalo.log 原始输出预览 (最新 80 行)</span>
           <span id="log-file-size" style="font-size: 0.8rem; color: var(--text-muted);">大小: 0 KB</span>
         </div>
-        <pre id="raw-log-tail" style="background: #090d16; border: 1px solid var(--card-border); border-radius: 8px; padding: 14px; font-family: monospace; font-size: 0.8rem; color: #a5f3fc; height: 260px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;"></pre>
+        <pre id="raw-log-tail" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; font-family: monospace; font-size: 0.82rem; color: #0369a1; height: 260px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;"></pre>
       </div>
     </div>
 
@@ -679,12 +674,12 @@
         <p>SafeHalo Web 控制台天然绑定 <code>0.0.0.0:8080</code>。由于家庭宽带通常无固定公网 IPv4，推荐以下三种零成本、高安全的远程访问方案：</p>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 20px 0;">
-          <div style="background: #090d16; border: 1px solid var(--primary); border-radius: 12px; padding: 18px;">
+          <div style="background: #f8fafc; border: 1px solid #bae6fd; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.05);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-weight: 700; color: #38bdf8;">★ 推荐方案 A：Cloudflare Tunnel</span>
-              <span style="background: rgba(56,189,248,0.2); color: #38bdf8; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px;">免公网IP · 自动HTTPS</span>
+              <span style="font-weight: 700; color: #0284c7;">★ 推荐方案 A：Cloudflare Tunnel</span>
+              <span style="background: #e0f2fe; color: #0284c7; font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; font-weight: 600;">免公网IP · 自动HTTPS</span>
             </div>
-            <p style="font-size: 0.86rem; color: var(--text-muted); margin-bottom: 10px;">
+            <p style="font-size: 0.86rem; color: #64748b; margin-bottom: 10px;">
               无需在路由器上做任何端口映射，全球 CDN 节点穿透，且自动配置免费 SSL 绿锁证书，手机端打开最流畅安全。
             </p>
             <div class="diagram-box" style="margin: 0; font-size: 0.8rem;">
@@ -695,17 +690,17 @@
 # 2. 一键启动免费快速隧道:
 cloudflared tunnel --url http://localhost:8080
             </div>
-            <p style="font-size: 0.82rem; color: var(--success); margin-top: 10px;">
+            <p style="font-size: 0.82rem; color: #059669; margin-top: 10px; font-weight: 600;">
               运行后终端将返回独立公网链接 (如 <code>https://xxxx.trycloudflare.com</code>)，直接发给家人即可远程使用。
             </p>
           </div>
 
-          <div style="background: #090d16; border: 1px solid var(--card-border); border-radius: 12px; padding: 18px;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-weight: 700; color: #34d399;">方案 B：Tailscale 虚拟专网</span>
-              <span style="background: rgba(52,211,153,0.2); color: #34d399; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px;">点对点加密 · 极度安全</span>
+              <span style="font-weight: 700; color: #059669;">方案 B：Tailscale 虚拟专网</span>
+              <span style="background: #ecfdf5; color: #059669; font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; font-weight: 600;">点对点加密 · 极度安全</span>
             </div>
-            <p style="font-size: 0.86rem; color: var(--text-muted); margin-bottom: 10px;">
+            <p style="font-size: 0.86rem; color: #64748b; margin-bottom: 10px;">
               在手机与路由器上同时安装 Tailscale，二者通过底层 WireGuard 协议组成私密加密内网。
             </p>
             <div class="diagram-box" style="margin: 0; font-size: 0.8rem;">
@@ -713,7 +708,7 @@ cloudflared tunnel --url http://localhost:8080
 # 手机浏览器直接打开 Tailscale 内网地址:
 http://100.x.x.x:8080
             </div>
-            <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 10px;">
+            <p style="font-size: 0.82rem; color: #64748b; margin-top: 10px;">
               不经过第三方中继，完全对外隐身，杜绝黑客扫描。
             </p>
           </div>
@@ -848,7 +843,7 @@ http://100.x.x.x:8080
       </div>
 
       <!-- 顶部隐私安心定心丸 -->
-      <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.82rem; color: #d1fae5; line-height: 1.5;">
+      <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.84rem; color: #065f46; line-height: 1.5;">
         🔒 <strong>隐私安心承诺</strong>：SafeHalo 仅通过家中 Wi-Fi 无线电波感知日常微动，<strong>全屋零摄像头、不拍任何画面、不录音</strong>，守护安全更守护家人的自在与体面。
       </div>
 
@@ -862,7 +857,7 @@ http://100.x.x.x:8080
       <!-- ==================== 第 1 步：放哪儿 (空间与环境) ==================== -->
       <div class="wizard-step-pane active" id="wiz-pane-1">
         <div class="form-group">
-          <label style="font-weight: 700; color: #fff;">1. 这台设备主要安放在哪个房间？</label>
+          <label style="font-weight: 700;">1. 这台设备主要安放在哪个房间？</label>
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
             <div class="room-card selected" id="rc-LIVING_ROOM" onclick="selectRoomType('LIVING_ROOM', '客厅')">
               <div style="font-size: 1.4rem;">🛋️</div>
@@ -876,7 +871,7 @@ http://100.x.x.x:8080
             </div>
             <div class="room-card" id="rc-BATHROOM" onclick="selectRoomType('BATHROOM', '卫浴间')">
               <div style="font-size: 1.4rem;">🚿</div>
-              <div style="font-weight: 600; color: #38bdf8;">卫浴间</div>
+              <div style="font-weight: 600; color: #0284c7;">卫浴间</div>
               <div style="font-size: 0.72rem; color: var(--text-muted);">开启防滑重点关照</div>
             </div>
             <div class="room-card" id="rc-KITCHEN" onclick="selectRoomType('KITCHEN', '厨房')">
@@ -893,7 +888,7 @@ http://100.x.x.x:8080
         </div>
 
         <div class="form-group" style="margin-top: 14px;">
-          <label style="font-weight: 700; color: #fff;">2. 设备摆放的大致高度？</label>
+          <label style="font-weight: 700;">2. 设备摆放的大致高度？</label>
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
             <div class="height-card" id="hc-LOW" onclick="selectMountHeight('LOW')">
               <div style="font-weight: 600;">🪑 矮柜高度</div>
@@ -911,12 +906,12 @@ http://100.x.x.x:8080
         </div>
 
         <div class="form-group" style="margin-top: 14px; margin-bottom: 8px;">
-          <label style="font-weight: 700; color: #fff;">3. 家里是否有以下小情况？（帮您自动免除日常误扰）</label>
+          <label style="font-weight: 700;">3. 家里是否有以下小情况？（帮您自动免除日常误扰）</label>
           <div style="display: flex; flex-wrap: wrap; gap: 18px; margin-top: 8px;">
-            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: #e2e8f0;">
+            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: #334155;">
               <input type="checkbox" id="chk-wizard-pets" onchange="updatePlacementParamPreview()"> 🐾 家里有猫狗等爱宠在地面走动
             </label>
-            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: #e2e8f0;">
+            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: #334155;">
               <input type="checkbox" id="chk-wizard-water" onchange="updatePlacementParamPreview()"> 💧 附近常有淋浴水花或加湿器水雾
             </label>
           </div>
@@ -931,7 +926,7 @@ http://100.x.x.x:8080
       <!-- ==================== 第 2 步：守护谁 (温和贴合生活习惯) ==================== -->
       <div class="wizard-step-pane" id="wiz-pane-2">
         <div class="form-group">
-          <label style="font-weight: 700; color: #fff;">1. 您希望怎么温暖地称呼守护对象？（用于消息提醒显示）</label>
+          <label style="font-weight: 700;">1. 您希望怎么温暖地称呼守护对象？（用于消息提醒显示）</label>
           <div style="display: flex; gap: 10px; align-items: center; margin-top: 6px;">
             <input type="text" id="inp-care-nickname" value="家里长辈" placeholder="例如：爸妈、外婆、老爸、我自己" oninput="updatePlacementParamPreview()" style="flex: 1;">
           </div>
@@ -945,7 +940,7 @@ http://100.x.x.x:8080
         </div>
 
         <div class="form-group" style="margin-top: 14px;">
-          <label style="font-weight: 700; color: #fff;">2. 家里的常住情况？</label>
+          <label style="font-weight: 700;">2. 家里的常住情况？</label>
           <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 8px;">
             <div class="choice-card selected" id="lc-SOLO" onclick="selectLivingArrangement('SOLO')">
               <div style="font-weight: 600;">👤 一人独居</div>
@@ -959,21 +954,21 @@ http://100.x.x.x:8080
         </div>
 
         <div class="form-group" style="margin-top: 14px;">
-          <label style="font-weight: 700; color: #fff;">3. 家人平时的行动节奏？（帮系统把握最舒适的保护灵敏度）</label>
+          <label style="font-weight: 700;">3. 家人平时的行动节奏？（帮系统把握最舒适的保护灵敏度）</label>
           <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 8px;">
             <div class="choice-card selected" id="mp-BRISK" onclick="selectMobilityPace('BRISK')">
               <div style="font-weight: 600;">🏃 步履轻快</div>
               <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 3px;">日常活动自如，启用标准防磕碰保护</div>
             </div>
             <div class="choice-card" id="mp-STEADY_SLOW" onclick="selectMobilityPace('STEADY_SLOW')">
-              <div style="font-weight: 600; color: #38bdf8;">🚶 稳健慢行</div>
+              <div style="font-weight: 600; color: #0284c7;">🚶 稳健慢行</div>
               <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 3px;">起身偏缓或偶借扶手，加强“顺墙/床沿缓滑”保护</div>
             </div>
           </div>
         </div>
 
         <div class="form-group" style="margin-top: 14px; margin-bottom: 8px;">
-          <label style="font-weight: 700; color: #fff;">4. 平时大概几点起床？（避免清晨睡懒觉时误发早安提醒）</label>
+          <label style="font-weight: 700;">4. 平时大概几点起床？（避免清晨睡懒觉时误发早安提醒）</label>
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
             <div class="choice-card" id="wh-EARLY" onclick="selectWakeHabit('EARLY')">
               <div style="font-weight: 600;">🌅 早起型</div>
@@ -999,13 +994,13 @@ http://100.x.x.x:8080
       <!-- ==================== 第 3 步：怎么联系 (安心联结与防误扰) ==================== -->
       <div class="wizard-step-pane" id="wiz-pane-3">
         <div class="form-group">
-          <label style="font-weight: 700; color: #fff;">1. 贴心防误扰设置（把控制权留给家里的长辈）</label>
-          <div style="background: #0f172a; border: 1px solid var(--card-border); border-radius: 10px; padding: 12px 14px; margin-top: 8px;">
-            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; color: #f8fafc; font-weight: 600; margin-bottom: 0;">
+          <label style="font-weight: 700;">1. 贴心防误扰设置（把控制权留给家里的长辈）</label>
+          <div style="background: #f8fafc; border: 1px solid var(--card-border); border-radius: 12px; padding: 14px; margin-top: 8px;">
+            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; color: #0f172a; font-weight: 600; margin-bottom: 0;">
               <input type="checkbox" id="chk-gentle-challenge" checked onchange="updatePlacementParamPreview()" style="margin-top: 4px;">
               <div>
                 <div>🔔 疑似磕碰时，先发出轻柔确认提示音（推荐开启）</div>
-                <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: normal; margin-top: 4px; line-height: 1.45;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: normal; margin-top: 4px; line-height: 1.45;">
                   遇到捡东西、坐地穿鞋等小动静时，设备会先轻声询问，家里人<strong>挥挥手、走动一下或按一下取消键</strong>即可立刻解除，不会动辄给远方家人发警报添乱。
                 </div>
               </div>
@@ -1014,20 +1009,20 @@ http://100.x.x.x:8080
         </div>
 
         <div class="form-group" style="margin-top: 14px;">
-          <label style="font-weight: 700; color: #fff;">2. 手机微信守护提醒绑定（选填，也可稍后在设置页填写）</label>
+          <label style="font-weight: 700;">2. 手机微信守护提醒绑定（选填，也可稍后在设置页填写）</label>
           <div style="display: flex; gap: 8px; margin-top: 6px;">
             <input type="text" id="inp-wizard-pushplus" placeholder="填入微信 PushPlus Token（留空则仅在本地控制台提醒）" style="flex: 1;">
             <button class="btn btn-secondary" style="white-space: nowrap; font-size: 0.82rem;" onclick="sendOnboardingTestPush()">📲 发条平安测试</button>
           </div>
-          <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 5px;">
+          <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 5px;">
             💡 提示：点击「发条平安测试」，手机收到一条温和的报平安消息即代表联结成功。
           </div>
         </div>
 
         <!-- 温暖生活化的专属方案预览 -->
-        <div style="background: #0f172a; border: 1px dashed #38bdf8; border-radius: 10px; padding: 12px 14px; margin-top: 14px; font-size: 0.84rem;">
-          <div style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">💝 已为您生成的专属守护方案：</div>
-          <div id="wizard-param-preview" style="color: #e2e8f0; line-height: 1.6;">
+        <div style="background: #f0f9ff; border: 1px dashed #0284c7; border-radius: 12px; padding: 14px; margin-top: 14px; font-size: 0.86rem;">
+          <div style="font-weight: 700; color: #0284c7; margin-bottom: 4px;">💝 已为您生成的专属守护方案：</div>
+          <div id="wizard-param-preview" style="color: #0369a1; line-height: 1.6;">
             ✨ 已为【家里长辈】定制【客厅】守护方案：客厅宽敞空间与窗帘微动防误扰、疑似磕碰先发轻柔提示音（挥手即可取消）
           </div>
         </div>
