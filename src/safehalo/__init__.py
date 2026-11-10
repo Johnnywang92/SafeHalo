@@ -20,6 +20,12 @@ from .mmwave_parser import (
 )
 from .mmwave_detector import MMWaveDetector, RadarHumanState, RadarFallFeatures
 from .dual_fusion_engine import DualSensorFusionEngine, FusedState, FusedPerceptionResult
+from .routine_monitor import (
+    RoutineMonitorEngine,
+    RoutineProfileConfig,
+    RoutineAnomalyType,
+    RoutineAnomalyEvent,
+)
 
 __all__ = [
     "CSIPacket",
@@ -46,4 +52,8 @@ __all__ = [
     "DualSensorFusionEngine",
     "FusedState",
     "FusedPerceptionResult",
+    "RoutineMonitorEngine",
+    "RoutineProfileConfig",
+    "RoutineAnomalyType",
+    "RoutineAnomalyEvent",
 ]

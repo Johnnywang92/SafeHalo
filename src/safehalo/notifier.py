@@ -106,6 +106,42 @@ class AlertNotifier:
 
         return success
 
+    def send_routine_anomaly_alert(self, title: str, description: str, severity: str = "ALERT") -> bool:
+        """
+        发送老人日常作息严重偏离通报 (如晨间未按时起床、日间异常长时间静止无活动、夜间起夜过多)
+        """
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        icon = "⚠️" if severity == "WARNING" else "🚨"
+        formatted_title = f"{icon}{title}"
+        content = (
+            f"### 老人日常作息异常偏离通报\n\n"
+            f"- **事件类型**: {title}\n"
+            f"- **通报时间**: {now_str}\n"
+            f"- **偏离详情**: {description}\n\n"
+            f"> 建议: 慢性作息剧烈突变常为心脑血管意外、低血糖或感染前兆。请及时致电老人或上门核实日常起居状况！"
+        )
+
+        success = False
+        if self.pushplus_token:
+            success = self._send_pushplus(formatted_title, content) or success
+        if self.serverchan_key:
+            success = self._send_serverchan(formatted_title, content) or success
+        if self.webhook_url:
+            success = self._send_webhook(formatted_title, content) or success
+        if self.ha_webhook_url:
+            success = self._send_ha_webhook(
+                event="routine_anomaly",
+                room_name="家庭全域",
+                confidence="高",
+                details=description,
+            ) or success
+
+        if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.ha_webhook_url):
+            logger.info(f"[Notifier 本地模拟作息偏离通报] {formatted_title} - {description}")
+            return True
+
+        return success
+
     def _send_pushplus(self, title: str, markdown_content: str) -> bool:
         url = "http://www.pushplus.plus/send"
         payload = {

@@ -191,6 +191,39 @@
         </div>
       </div>
 
+      <!-- 日常作息画像与健康偏离分析 -->
+      <div class="card" style="margin-bottom: 20px;">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>🌅 老人日常作息画像与健康偏离监测</span>
+          <span id="routine-status-badge" style="font-size: 0.8rem; padding: 3px 10px; border-radius: 20px; background: rgba(16,185,129,0.2); color: var(--success); font-weight: 600;">作息健康规律</span>
+        </div>
+        <div class="metric-grid" style="grid-template-columns: repeat(4, 1fr); margin-top: 12px;">
+          <div class="metric-item">
+            <div class="metric-label">今日起床时间</div>
+            <div class="metric-val" id="rt-wake-time" style="color: var(--cyan);">尚未起床</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">常态基准: <span id="rt-typical-wake">07:30</span></div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">昨夜入睡时间</div>
+            <div class="metric-val" id="rt-bed-time" style="color: #a78bfa;">待定</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">常态基准: <span id="rt-typical-bed">22:30</span></div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">昨夜起夜频次</div>
+            <div class="metric-val" id="rt-night-restless">0 次</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">健康上限: 4 次</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">今日有效活动</div>
+            <div class="metric-val" id="rt-active-mins" style="color: var(--success);">0 分钟</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">走动频次累计</div>
+          </div>
+        </div>
+        <div id="routine-alert-box" style="display: none; margin-top: 14px; background: rgba(239,68,68,0.15); border: 1px solid var(--danger); border-radius: 8px; padding: 12px 16px; font-size: 0.88rem; color: #fca5a5;">
+          <strong>⚠️ 异常偏离通报: </strong><span id="routine-alert-text"></span>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title">最近事件与状态转移日志</div>
         <ul id="event-list" class="event-log">
@@ -875,6 +908,33 @@ http://100.x.x.x:8080
             radarBadge.innerText = '未启用/单模CSI';
             radarBadge.style.background = 'rgba(148,163,184,0.2)';
             radarBadge.style.color = '#94a3b8';
+          }
+
+          // 作息画像与偏离监测更新
+          if (d.routine) {
+            const rt = d.routine;
+            document.getElementById('rt-wake-time').innerText = rt.wake_time || '尚未起床';
+            document.getElementById('rt-bed-time').innerText = rt.bed_time || '待定';
+            document.getElementById('rt-typical-wake').innerText = rt.typical_wake || '07:30';
+            document.getElementById('rt-typical-bed').innerText = rt.typical_bed || '22:30';
+            document.getElementById('rt-night-restless').innerText = (rt.night_restless_count || 0) + ' 次';
+            document.getElementById('rt-active-mins').innerText = (rt.total_active_minutes || 0).toFixed(0) + ' 分钟';
+
+            const rtBadge = document.getElementById('routine-status-badge');
+            const alertBox = document.getElementById('routine-alert-box');
+            if (rt.has_anomaly && rt.active_anomalies && rt.active_anomalies.length > 0) {
+              const latest = rt.active_anomalies[rt.active_anomalies.length - 1];
+              rtBadge.innerText = '⚠️ 出现作息偏离';
+              rtBadge.style.background = 'rgba(239,68,68,0.2)';
+              rtBadge.style.color = 'var(--danger)';
+              alertBox.style.display = 'block';
+              document.getElementById('routine-alert-text').innerText = latest.title + ': ' + latest.description;
+            } else {
+              rtBadge.innerText = '作息健康规律';
+              rtBadge.style.background = 'rgba(16,185,129,0.2)';
+              rtBadge.style.color = 'var(--success)';
+              alertBox.style.display = 'none';
+            }
           }
 
           if (d.recent_events && d.recent_events.length > 0) {

@@ -81,11 +81,20 @@ class TestHomeAssistantBridge(unittest.TestCase):
         self.assertIn(btn_topic, published)
         self.assertEqual(published[btn_topic]["command_topic"], "safehalo/command/inspect")
 
+        # 6. 验证作息偏离预警二值传感器
+        routine_topic = "homeassistant/binary_sensor/safehalo/routine_anomaly/config"
+        self.assertIn(routine_topic, published)
+        self.assertEqual(published[routine_topic]["device_class"], "problem")
+
+        # 7. 验证起床时间传感器
+        wake_topic = "homeassistant/sensor/safehalo/wake_time/config"
+        self.assertIn(wake_topic, published)
+
     def test_ha_state_publishing(self):
         """测试状态流转时发布到对应 Home Assistant state topics"""
         self.mock_client.published_messages.clear()
 
-        # 发布跌倒状态
+        # 发布跌倒与作息状态
         self.bridge.publish_state(
             human_state="FALL_CONFIRMED",
             is_fall=True,
@@ -95,6 +104,9 @@ class TestHomeAssistantBridge(unittest.TestCase):
             radar_z=0.22,
             respiration_bpm=16.8,
             confidence=0.98,
+            routine_anomaly=True,
+            wake_time="07:20",
+            night_restless_count=2,
         )
 
         published_dict = {topic: payload for topic, payload, _ in self.mock_client.published_messages}
@@ -106,6 +118,9 @@ class TestHomeAssistantBridge(unittest.TestCase):
         self.assertEqual(published_dict.get("safehalo/sensor/radar_z/state"), "0.22")
         self.assertEqual(published_dict.get("safehalo/sensor/respiration/state"), "16.8")
         self.assertEqual(published_dict.get("safehalo/sensor/confidence/state"), "98")
+        self.assertEqual(published_dict.get("safehalo/binary_sensor/routine_anomaly/state"), "ON")
+        self.assertEqual(published_dict.get("safehalo/sensor/wake_time/state"), "07:20")
+        self.assertEqual(published_dict.get("safehalo/sensor/night_restless/state"), "2")
 
 
 if __name__ == "__main__":

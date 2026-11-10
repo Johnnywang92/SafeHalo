@@ -34,6 +34,17 @@ shared_system_state = {
     "fused_state": "CALIBRATING",
     "fused_confidence": 1.0,
     "fused_reason": "单模 Wi-Fi CSI 运行中",
+    "routine": {
+        "wake_time": "尚未起床",
+        "bed_time": "待定",
+        "typical_wake": "07:30",
+        "typical_bed": "22:30",
+        "night_restless_count": 0,
+        "total_active_minutes": 0.0,
+        "hourly_activity": [0] * 24,
+        "active_anomalies": [],
+        "has_anomaly": False,
+    },
     "recent_events": [
         {"time": datetime.now().strftime("%H:%M:%S"), "text": "SafeHalo 系统启动，完成基线自适应校准"}
     ]
@@ -104,6 +115,7 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             is_moving = shared_system_state.get("state") == "MOVING"
             is_presence = shared_system_state.get("state") not in ("EMPTY", "CALIBRATING")
             is_pet = bool(shared_system_state.get("is_pet", False))
+            routine_data = shared_system_state.get("routine", {})
 
             ha_payload = {
                 "fall_detected": is_fall,
@@ -116,8 +128,17 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 "respiration_bpm": shared_system_state.get("radar_bpm", 0.0),
                 "confidence": shared_system_state.get("fused_confidence", 1.0),
                 "decision_reason": shared_system_state.get("fused_reason", ""),
+                "routine_has_anomaly": routine_data.get("has_anomaly", False),
+                "wake_time": routine_data.get("wake_time", ""),
+                "bed_time": routine_data.get("bed_time", ""),
+                "night_restless_count": routine_data.get("night_restless_count", 0),
             }
             self._send_json(200, ha_payload)
+            return
+
+        # 1.2 作息画像与偏离异常分析接口 (公开)
+        if self.path == "/api/routine":
+            self._send_json(200, shared_system_state.get("routine", {}))
             return
 
         # --- 以下接口均需要登录 ---

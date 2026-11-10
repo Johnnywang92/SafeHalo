@@ -30,6 +30,7 @@ from src.safehalo.security_guard import SecurityGuardEngine, SecurityMode
 from src.safehalo.web_portal import SafeHaloWebHandler, shared_system_state, start_portal_server
 from src.safehalo.dual_fusion_engine import DualSensorFusionEngine, FusedState, FusedPerceptionResult
 from src.safehalo.ha_discovery import HomeAssistantBridge
+from src.safehalo.routine_monitor import RoutineMonitorEngine, RoutineAnomalyEvent
 import socketserver
 
 class SafeHaloSupervisor:
@@ -112,6 +113,11 @@ class SafeHaloSupervisor:
             on_intruder_alarm=self._on_intruder_alarm,
         )
 
+        # 老人日常作息画像与异常偏离诊断引擎
+        self.routine_monitor = RoutineMonitorEngine(
+            on_anomaly=self._on_routine_anomaly
+        )
+
     def _handle_exit_signal(self, signum, frame):
         logger.info(f"收到系统信号 ({signum})，正在优雅关闭 SafeHalo 服务...")
         self.running = False
@@ -133,8 +139,17 @@ class SafeHaloSupervisor:
         # 联动安防布防引擎
         self.security_guard.process_state(new_state, features)
 
+        # 联动老人日常作息画像与异常偏离分析
+        self.routine_monitor.update_state(
+            human_state=new_state,
+            is_presence=(new_state not in (HumanState.EMPTY, HumanState.CALIBRATING)),
+            is_motion=(new_state == HumanState.MOVING),
+        )
+        shared_system_state["routine"] = self.routine_monitor.get_summary()
+
         # 同步至 Home Assistant
         if self.ha_bridge:
+            rt_summary = shared_system_state.get("routine", {})
             self.ha_bridge.publish_state(
                 human_state=new_state.value,
                 is_fall=(new_state == HumanState.FALL_CONFIRMED),
@@ -144,7 +159,19 @@ class SafeHaloSupervisor:
                 radar_z=shared_system_state.get("radar_z", 0.0),
                 respiration_bpm=shared_system_state.get("radar_bpm", 0.0),
                 confidence=shared_system_state.get("fused_confidence", 1.0),
+                routine_anomaly=rt_summary.get("has_anomaly", False),
+                wake_time=rt_summary.get("wake_time", ""),
+                night_restless_count=rt_summary.get("night_restless_count", 0),
             )
+
+    def _on_routine_anomaly(self, evt: RoutineAnomalyEvent):
+        """老人作息异常偏离通报 (晨间不起床、日间长时间静止无活动、夜间起夜过多)"""
+        self.notifier.send_routine_anomaly_alert(
+            title=evt.title,
+            description=evt.description,
+            severity=evt.severity,
+        )
+        shared_system_state["routine"] = self.routine_monitor.get_summary()
 
     def _on_fall_alarm(self, features: CSIFeatures):
         logger.log_fall_confirmed(
@@ -174,8 +201,19 @@ class SafeHaloSupervisor:
         shared_system_state["radar_online"] = True
         shared_system_state["radar_protocol"] = self.radar_protocol
 
+        # 联动老人日常作息画像分析
+        self.routine_monitor.update_state(
+            human_state=HumanState.MOVING if new_state == FusedState.NORMAL_ACTIVITY else (
+                HumanState.EMPTY if new_state == FusedState.EMPTY else HumanState.STATIC
+            ),
+            is_presence=(new_state not in (FusedState.EMPTY, FusedState.CALIBRATING)),
+            is_motion=(new_state == FusedState.NORMAL_ACTIVITY),
+        )
+        shared_system_state["routine"] = self.routine_monitor.get_summary()
+
         # 同步至 Home Assistant
         if self.ha_bridge:
+            rt_summary = shared_system_state.get("routine", {})
             self.ha_bridge.publish_state(
                 human_state=new_state.value,
                 is_fall=(new_state == FusedState.FALL_CONFIRMED),
@@ -185,6 +223,9 @@ class SafeHaloSupervisor:
                 radar_z=res.radar_z,
                 respiration_bpm=res.radar_respiration_bpm,
                 confidence=res.fused_confidence,
+                routine_anomaly=rt_summary.get("has_anomaly", False),
+                wake_time=rt_summary.get("wake_time", ""),
+                night_restless_count=rt_summary.get("night_restless_count", 0),
             )
 
     def _on_fused_fall_alarm(self, res: FusedPerceptionResult):

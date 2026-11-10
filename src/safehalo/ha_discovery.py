@@ -383,6 +383,40 @@ class HomeAssistantBridge:
                     "icon": "mdi:radar",
                 },
             ),
+            # 10. 老人日常作息偏离异常预警 (Problem)
+            (
+                "binary_sensor",
+                "routine_anomaly",
+                {
+                    "name": "日常作息偏离预警",
+                    "device_class": "problem",
+                    "state_topic": "safehalo/binary_sensor/routine_anomaly/state",
+                    "payload_on": "ON",
+                    "payload_off": "OFF",
+                    "icon": "mdi:clock-alert-outline",
+                },
+            ),
+            # 11. 今日实际起床时间
+            (
+                "sensor",
+                "wake_time",
+                {
+                    "name": "今日起床时间",
+                    "state_topic": "safehalo/sensor/wake_time/state",
+                    "icon": "mdi:weather-sunset-up",
+                },
+            ),
+            # 12. 昨夜起夜频次
+            (
+                "sensor",
+                "night_restless",
+                {
+                    "name": "昨夜起夜频次",
+                    "state_topic": "safehalo/sensor/night_restless/state",
+                    "unit_of_measurement": "次",
+                    "icon": "mdi:bed-clock",
+                },
+            ),
         ]
 
         for component, object_id, config in entities:
@@ -404,9 +438,12 @@ class HomeAssistantBridge:
         radar_z: float = 0.0,
         respiration_bpm: float = 0.0,
         confidence: float = 1.0,
+        routine_anomaly: bool = False,
+        wake_time: str = "",
+        night_restless_count: int = 0,
     ):
         """
-        向 Home Assistant 发布最新实时状态
+        向 Home Assistant 发布最新实时状态与作息指标
         """
         if not self.client or not self.client.connected:
             return
@@ -427,3 +464,8 @@ class HomeAssistantBridge:
         self.client.publish("safehalo/sensor/respiration/state", f"{respiration_bpm:.1f}")
         # 置信度
         self.client.publish("safehalo/sensor/confidence/state", f"{int(confidence * 100)}")
+        # 作息偏离
+        self.client.publish("safehalo/binary_sensor/routine_anomaly/state", "ON" if routine_anomaly else "OFF")
+        if wake_time:
+            self.client.publish("safehalo/sensor/wake_time/state", wake_time)
+        self.client.publish("safehalo/sensor/night_restless/state", str(night_restless_count))
