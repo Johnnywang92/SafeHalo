@@ -242,7 +242,13 @@ class PlacementAdapter:
         params = self.current_tuned_params
         logger.info(f"[PlacementAdapter] 正在向算法核心下发参数: {params.description}")
 
-        # 1. 注入 CSI 状态机
+        # 1. 注入 CSI 信号滤波器与状态机
+        if csi_engine and hasattr(csi_engine, "filter"):
+            flt = csi_engine.filter
+            flt.hampel_window = params.hampel_window_size
+            flt.water_flow_damping = params.water_flow_damping
+            flt.metal_multipath_damping = params.metal_multipath_damping
+
         if csi_engine and hasattr(csi_engine, "detector"):
             det = csi_engine.detector
             det.fall_spike_threshold = params.fall_spike_threshold
@@ -258,6 +264,10 @@ class PlacementAdapter:
 
         # 2. 注入双模/毫米波引擎
         if dual_engine:
+            if hasattr(dual_engine, "csi_filter"):
+                dual_engine.csi_filter.hampel_window = params.hampel_window_size
+                dual_engine.csi_filter.water_flow_damping = params.water_flow_damping
+                dual_engine.csi_filter.metal_multipath_damping = params.metal_multipath_damping
             if hasattr(dual_engine, "radar_detector"):
                 dual_engine.radar_detector.floor_height_thresh = params.radar_floor_height_thresh
                 dual_engine.radar_detector.stillness_confirm_sec = params.fall_stillness_seconds
@@ -265,3 +275,26 @@ class PlacementAdapter:
                 dual_engine.csi_detector.fall_spike_threshold = params.fall_spike_threshold
                 dual_engine.csi_detector.fall_stillness_seconds = params.fall_stillness_seconds
                 dual_engine.csi_detector.start_calibration()
+
+    def record_false_alarm_feedback(
+        self,
+        reason: str = "家属标记误报",
+        csi_engine: Optional[Any] = None,
+        dual_engine: Optional[Any] = None,
+    ) -> TunedParameters:
+        """
+        处理家属端提交的误报反馈：自适应上浮跌倒冲击门限 (+10%) 与静止确认时间 (+0.5s)，抑制同类误报
+        """
+        with self._lock:
+            params = self.current_tuned_params
+            params.fall_spike_threshold = round(min(3.5, params.fall_spike_threshold * 1.10), 2)
+            params.fall_stillness_seconds = round(min(8.0, params.fall_stillness_seconds + 0.5), 1)
+            params.description = f"{params.description} | [已根据误报反馈自适应调高抗扰度]"
+            logger.log_event(
+                "FALSE_ALARM_FEEDBACK",
+                f"收到误报反馈 ({reason})，已自动调高冲击阈值至 {params.fall_spike_threshold}，静止确认延长至 {params.fall_stillness_seconds}s",
+                level="INFO",
+                data={"new_spike_threshold": params.fall_spike_threshold, "new_stillness_sec": params.fall_stillness_seconds},
+            )
+        self.apply_to_engines(csi_engine=csi_engine, dual_engine=dual_engine)
+        return self.current_tuned_params

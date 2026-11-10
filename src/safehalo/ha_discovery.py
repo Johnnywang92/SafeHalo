@@ -179,6 +179,64 @@ class MiniMQTTClient:
                 pass
             self.sock = None
 
+    def poll_incoming(self, timeout_sec: float = 0.2) -> bool:
+        """非阻塞轮询读取 MQTT 下行 PUBLISH 与 PINGRESP 报文"""
+        if not self.connected or not self.sock:
+            return False
+        try:
+            self.sock.settimeout(timeout_sec)
+            first = self.sock.recv(1)
+            if not first:
+                self.connected = False
+                return False
+            pkt_type = first[0] & 0xF0
+            # 解码 Remaining Length
+            multiplier = 1
+            rem_len = 0
+            while True:
+                b = self.sock.recv(1)
+                if not b:
+                    return False
+                encoded_byte = b[0]
+                rem_len += (encoded_byte & 127) * multiplier
+                if (encoded_byte & 128) == 0:
+                    break
+                multiplier *= 128
+
+            body = bytearray()
+            while len(body) < rem_len:
+                chunk = self.sock.recv(rem_len - len(body))
+                if not chunk:
+                    break
+                body.extend(chunk)
+
+            if pkt_type == 0x30 and len(body) >= 2:  # PUBLISH
+                topic, payload = self.decode_publish_body(bytes(body), qos=(first[0] >> 1) & 0x03)
+                if topic and self.on_message:
+                    self.on_message(topic, payload)
+                return True
+            return True
+        except socket.timeout:
+            return True
+        except Exception:
+            self.connected = False
+            return False
+
+    @staticmethod
+    def decode_publish_body(body: bytes, qos: int = 0) -> tuple:
+        """解析 MQTT PUBLISH 报文体，返回 (topic, payload_str)"""
+        if len(body) < 2:
+            return ("", "")
+        topic_len = struct.unpack("!H", body[:2])[0]
+        idx = 2 + topic_len
+        if len(body) < idx:
+            return ("", "")
+        topic = body[2:idx].decode("utf-8", errors="ignore")
+        if qos > 0:
+            idx += 2  # 跳过 Packet Identifier
+        payload = body[idx:].decode("utf-8", errors="ignore") if idx <= len(body) else ""
+        return (topic, payload)
+
     def _encode_remaining_len(self, length: int) -> bytearray:
         encoded = bytearray()
         while True:
@@ -256,6 +314,7 @@ class HomeAssistantBridge:
                     username=self.mqtt_user,
                     password=self.mqtt_pass,
                     keepalive=60,
+                    on_message=self._handle_mqtt_message,
                 )
                 if self.client.connect():
                     logger.info("[HomeAssistantBridge] MQTT 连接成功！正在向 Home Assistant 注册自动发现实体...")
@@ -267,6 +326,9 @@ class HomeAssistantBridge:
                     time.sleep(5.0)
                     continue
 
+            # 轮询接收来自 Home Assistant 的下行控制指令
+            self.client.poll_incoming(timeout_sec=0.2)
+
             # 保活 PING
             now = time.time()
             if now - self._last_ping > 25.0:
@@ -274,7 +336,16 @@ class HomeAssistantBridge:
                 if not self.client.ping():
                     logger.warning("[HomeAssistantBridge] MQTT Broker 心跳丢失，准备重连...")
 
-            time.sleep(1.0)
+            time.sleep(0.3)
+
+    def _handle_mqtt_message(self, topic: str, payload: str):
+        """处理从 Home Assistant 下发的 MQTT 控制指令"""
+        logger.info(f"[HomeAssistantBridge] 收到 HA 指令: topic={topic}, payload={payload}")
+        if self.on_command:
+            try:
+                self.on_command(topic, payload.strip())
+            except Exception as e:
+                logger.error(f"[HomeAssistantBridge] 执行指令回调异常: {e}")
 
     def _publish_discovery(self):
         """向 Home Assistant 发送标准 MQTT 自动发现 (Auto-Discovery) 实体报文"""
@@ -417,6 +488,20 @@ class HomeAssistantBridge:
                     "icon": "mdi:bed-clock",
                 },
             ),
+            # 13. 隐形防盗布撤防控制面板
+            (
+                "alarm_control_panel",
+                "guard",
+                {
+                    "name": "隐形防盗布防面板",
+                    "state_topic": "safehalo/alarm_control_panel/guard/state",
+                    "command_topic": "safehalo/command/security_mode",
+                    "payload_disarm": "DISARMED",
+                    "payload_arm_away": "ARMED_AWAY",
+                    "payload_arm_night": "ARMED_NIGHT",
+                    "icon": "mdi:shield-home",
+                },
+            ),
         ]
 
         for component, object_id, config in entities:
@@ -426,7 +511,7 @@ class HomeAssistantBridge:
             payload_str = json.dumps(config, ensure_ascii=False)
             self.client.publish(topic, payload_str, retain=True)
 
-        logger.info("[HomeAssistantBridge] 全部 9 个 Home Assistant 实体已完成 MQTT 自动注册！")
+        logger.info(f"[HomeAssistantBridge] 全部 {len(entities)} 个 Home Assistant 实体已完成 MQTT 自动注册！")
 
     def publish_state(
         self,

@@ -22,6 +22,9 @@ class RouterCSIEngine:
         fall_stillness_seconds: float = 5.0,
         on_state_change: Optional[Callable[[HumanState, HumanState, CSIFeatures], None]] = None,
         on_fall_alarm: Optional[Callable[[CSIFeatures], None]] = None,
+        on_request_burst_rate: Optional[Callable[[int], None]] = None,
+        on_trigger_challenge: Optional[Callable[[str], None]] = None,
+        on_challenge_intercepted: Optional[Callable[[str], None]] = None,
     ):
         """
         :param router_mac: 路由器的 BSSID / MAC 地址 (如 "aa:bb:cc:dd:ee:ff")，若提供则自动锁定家网
@@ -40,6 +43,9 @@ class RouterCSIEngine:
             fall_stillness_seconds=fall_stillness_seconds,
             on_state_change=on_state_change,
             on_fall_alarm=on_fall_alarm,
+            on_request_burst_rate=on_request_burst_rate,
+            on_trigger_challenge=on_trigger_challenge,
+            on_challenge_intercepted=on_challenge_intercepted,
         )
 
         # 统计计数

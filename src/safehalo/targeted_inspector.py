@@ -35,7 +35,8 @@ class TargetedInspectionResult:
     state: TargetedInspectionState
     has_respiration: bool = False             # 是否检测到倒地人体呼吸微动
     respiration_bpm: float = 0.0              # 呼吸估算频次 (次/分钟)
-    body_recovered: bool = False              # 是否已自主起身
+    body_recovered: bool = False              # 是否已自主起身或响应质询
+    challenge_intercepted: bool = False       # 是否在交互质询窗口内通过应答拦截了误报
     is_inanimate_object: bool = False         # 是否为无生命的掉落物
     confidence: float = 0.0
     details: str = ""
@@ -46,22 +47,34 @@ class TargetedFallInspector:
         inspection_duration_seconds: float = 6.0,
         on_inspection_progress: Optional[Callable[[TargetedInspectionState, str], None]] = None,
         on_request_burst_rate: Optional[Callable[[int], None]] = None,
+        on_trigger_challenge: Optional[Callable[[str], None]] = None,
     ):
         """
         :param inspection_duration_seconds: 定向深度检查窗口时长 (秒)
         :param on_inspection_progress: 复查进度通知回调
         :param on_request_burst_rate: 向探针/路由器请求提频发包的回调 (如提频到 100Hz)
+        :param on_trigger_challenge: 进入本地声光/语音交互质询窗口时的回调 ("如您安全请动一下")
         """
         self.inspection_duration_seconds = inspection_duration_seconds
         self.on_inspection_progress = on_inspection_progress
         self.on_request_burst_rate = on_request_burst_rate
+        self.on_trigger_challenge = on_trigger_challenge
 
         self.current_state = TargetedInspectionState.STANDBY
         self.start_time = 0.0
+        self.manual_safe_acknowledged = False
 
         # 定向呼吸特征积分缓存 (记录最近高密帧的微动时序)
         self.respiration_wave_buffer = []
         self.diff_ratio_buffer = []
+
+    def acknowledge_safe(self, source: str = "老人本地按键/语音应答"):
+        """
+        在质询窗口期内，老人或家属主动应答确认安全，立即拦截误报
+        """
+        if self.current_state != TargetedInspectionState.STANDBY:
+            self.manual_safe_acknowledged = True
+            logger.info(f"[TargetedInspector] 收到安全应答 ({source})，准备解除疑似跌倒告警")
 
     def trigger_inspection(self, timestamp: float, trigger_reason: str = "初筛疑似跌倒冲击"):
         """
@@ -69,6 +82,7 @@ class TargetedFallInspector:
         """
         self.current_state = TargetedInspectionState.TRIGGERED
         self.start_time = timestamp
+        self.manual_safe_acknowledged = False
         self.respiration_wave_buffer.clear()
         self.diff_ratio_buffer.clear()
 
@@ -97,15 +111,31 @@ class TargetedFallInspector:
         diff_ratio = diff_energy / base_diff if base_diff > 1e-6 else 1.0
         self.diff_ratio_buffer.append(diff_ratio)
 
-        # A) 检测到明显的大幅自主翻身或站起 (能量飙升)
-        if diff_ratio > 2.8 and elapsed > 1.0:
-            self._switch_state(TargetedInspectionState.VERDICT_RECOVERED, "检测到受检者已自主活动/站立")
+        # A0) 检查是否收到主动安全确认 (按键/语音取消)
+        if self.manual_safe_acknowledged:
+            self._switch_state(TargetedInspectionState.VERDICT_RECOVERED, "收到主动安全应答，解除疑似跌倒状态")
             self.reset_to_standby()
             return TargetedInspectionResult(
                 state=TargetedInspectionState.VERDICT_RECOVERED,
                 body_recovered=True,
-                confidence=0.92,
-                details="跌倒后受检者在定向检查期内已自主恢复正常走动，警报平稳解除"
+                challenge_intercepted=True,
+                confidence=0.98,
+                details="交互质询窗口内收到老人主动安全确认应答，已成功拦截误报"
+            )
+
+        # A) 检测到明显的大幅自主翻身或站起，或在交互质询期 (AWAITING_CHALLENGE) 内做出手势/肢体微动应答
+        in_challenge = (self.current_state == TargetedInspectionState.AWAITING_CHALLENGE)
+        recovery_thresh = 2.1 if in_challenge else 2.8
+        if diff_ratio > recovery_thresh and elapsed > 0.8:
+            msg = "交互质询期内检测到老人应答活动" if in_challenge else "检测到受检者已自主活动/站立"
+            self._switch_state(TargetedInspectionState.VERDICT_RECOVERED, msg)
+            self.reset_to_standby()
+            return TargetedInspectionResult(
+                state=TargetedInspectionState.VERDICT_RECOVERED,
+                body_recovered=True,
+                challenge_intercepted=in_challenge,
+                confidence=0.94,
+                details="交互质询窗口内探测到受检者主动肢体应答或自主恢复，警报平稳解除"
             )
 
         # 收集低频微波形 (用于估计胸腔呼吸)
@@ -115,9 +145,22 @@ class TargetedFallInspector:
             if len(self.respiration_wave_buffer) > 150:
                 self.respiration_wave_buffer.pop(0)
 
-        # B) 时序推进: 2 秒后进入地面微弱呼吸扫描阶段
-        if elapsed >= 2.0 and self.current_state == TargetedInspectionState.HIGH_FREQ_BURST:
+        # B1) 时序推进阶段 2: 经过 1/3 时长后进入地面微弱呼吸扫描阶段
+        scan_trigger_t = max(0.8, self.inspection_duration_seconds * 0.33)
+        challenge_trigger_t = max(1.6, self.inspection_duration_seconds * 0.66)
+
+        if elapsed >= scan_trigger_t and self.current_state == TargetedInspectionState.HIGH_FREQ_BURST:
             self._switch_state(TargetedInspectionState.SCANNING_RESPIRATION, "正在定向扫描地面胸腔呼吸微动")
+
+        # B2) 时序推进阶段 3: 经过 2/3 时长后进入本地声光/语音交互质询窗口 ("无应答 -> 通知")
+        if elapsed >= challenge_trigger_t and self.current_state == TargetedInspectionState.SCANNING_RESPIRATION:
+            prompt_msg = "检测到疑似跌倒静止，正在发起本地声光/语音安全质询（如您安全请轻微动一下）"
+            self._switch_state(TargetedInspectionState.AWAITING_CHALLENGE, prompt_msg)
+            if self.on_trigger_challenge:
+                try:
+                    self.on_trigger_challenge(prompt_msg)
+                except Exception as e:
+                    logger.error(f"[TargetedInspector] 质询回调异常: {e}")
 
         # C) 达到定向复查超时，给出最终裁决
         if elapsed >= self.inspection_duration_seconds:

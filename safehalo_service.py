@@ -31,6 +31,7 @@ from src.safehalo.web_portal import SafeHaloWebHandler, shared_system_state, sta
 from src.safehalo.dual_fusion_engine import DualSensorFusionEngine, FusedState, FusedPerceptionResult
 from src.safehalo.ha_discovery import HomeAssistantBridge
 from src.safehalo.routine_monitor import RoutineMonitorEngine, RoutineAnomalyEvent
+from src.safehalo.multilink_fusion import MultiLinkFusionEngine, FusedSpatialResult
 import socketserver
 
 class SafeHaloSupervisor:
@@ -70,13 +71,14 @@ class SafeHaloSupervisor:
         self.ha_webhook = ha_webhook
 
         self.running = True
+        self._active_csi_serial = None
         self.notifier = AlertNotifier(
             pushplus_token=pushplus_token,
             ha_webhook_url=ha_webhook,
         )
         self.httpd = None
 
-        # Home Assistant 自动发现桥接器
+        # Home Assistant 自动发现桥接器 (带下行指令处理回调)
         self.ha_bridge = HomeAssistantBridge(
             mqtt_host=ha_mqtt_host,
             mqtt_port=ha_mqtt_port,
@@ -84,6 +86,7 @@ class SafeHaloSupervisor:
             mqtt_pass=ha_mqtt_pass,
             device_id="safehalo_router_gateway",
             device_name="SafeHalo 空间感知网关",
+            on_command=self._on_ha_command,
         ) if self.ha_mqtt_host else None
 
         # 注册系统退出信号 (SIGINT, SIGTERM)
@@ -99,14 +102,27 @@ class SafeHaloSupervisor:
             on_fall_alarm=self._on_fused_fall_alarm,
         ) if self.radar_serial else None
 
-        # 单模 CSI 检测引擎
+        # 单模 CSI 检测引擎 (带硬件突发提频控制与本地质询回调)
         self.engine = RouterCSIEngine(
             router_mac=router_mac,
             calibration_seconds=5.0,
             fall_stillness_seconds=5.0,
             on_state_change=self._on_state_change,
             on_fall_alarm=self._on_fall_alarm,
+            on_request_burst_rate=self._on_request_burst_rate,
+            on_trigger_challenge=self._on_trigger_challenge,
+            on_challenge_intercepted=self._on_challenge_intercepted,
         )
+
+        # 多链路空间分集融合引擎 (支持单/多路由器自动解耦与房间级定位)
+        links_cfg = None
+        if router_mac and ":" in router_mac and "," in router_mac:
+            links_cfg = {}
+            for item in router_mac.split(","):
+                if "=" in item:
+                    m, r = item.split("=", 1)
+                    links_cfg[m.strip()] = r.strip()
+        self.multilink_engine = MultiLinkFusionEngine(links_config=links_cfg)
 
         self.security_guard = SecurityGuardEngine(
             initial_mode=SecurityMode.DISARMED,
@@ -118,15 +134,92 @@ class SafeHaloSupervisor:
             on_anomaly=self._on_routine_anomaly
         )
 
-        # 路由器摆放自适应协调器与首次引导接驳
-        from src.safehalo.web_portal import placement_adapter, SafeHaloWebHandler
+        # 路由器摆放自适应协调器与 Web 双向回调绑定
+        from src.safehalo.web_portal import (
+            placement_adapter,
+            pilot_manager,
+            incident_manager,
+            SafeHaloWebHandler,
+        )
         self.placement_adapter = placement_adapter
+        self.pilot_manager = pilot_manager
+        self.incident_manager = incident_manager
         self.placement_adapter.apply_to_engines(csi_engine=self.engine, dual_engine=self.dual_engine)
         SafeHaloWebHandler.on_placement_updated = self._on_placement_updated
+        SafeHaloWebHandler.on_mode_changed = self._on_web_mode_changed
+        SafeHaloWebHandler.on_trigger_inspect = self._on_web_trigger_inspect
+        SafeHaloWebHandler.on_notifier_updated = self._on_web_notifier_updated
+        SafeHaloWebHandler.on_false_alarm_feedback = self._on_web_false_alarm_feedback
+        SafeHaloWebHandler.on_challenge_acknowledge = self._on_web_challenge_acknowledge
+        shared_system_state["auto_calibration"] = self.engine.detector.auto_calibrator.get_status_summary()
 
     def _on_placement_updated(self, cfg, params):
         logger.info(f"收到 Web 端摆放配置更新: 【{cfg.room_name}】，正在动态注入算法参数...")
         self.placement_adapter.apply_to_engines(csi_engine=self.engine, dual_engine=self.dual_engine)
+
+    def _on_web_mode_changed(self, mode_str: str):
+        target = self.security_guard.set_mode_by_name(mode_str)
+        shared_system_state["security_mode"] = mode_str
+        if self.ha_bridge and self.ha_bridge.client and self.ha_bridge.client.connected:
+            self.ha_bridge.client.publish("safehalo/alarm_control_panel/guard/state", target.value)
+
+    def _on_web_trigger_inspect(self, reason: str = "手动请求深度排查"):
+        now = time.time()
+        self.engine.detector.current_state = HumanState.FALL_SUSPECT
+        self.engine.detector.targeted_inspector.trigger_inspection(timestamp=now, trigger_reason=reason)
+        if self.dual_engine:
+            self.dual_engine.csi_detector.current_state = HumanState.FALL_SUSPECT
+            self.dual_engine.csi_detector.targeted_inspector.trigger_inspection(timestamp=now, trigger_reason=reason)
+
+    def _on_web_notifier_updated(self, updated_notifier: AlertNotifier):
+        self.notifier.update_config(
+            pushplus_token=updated_notifier.pushplus_token,
+            webhook_url=updated_notifier.webhook_url,
+            sms_webhook_url=updated_notifier.sms_webhook_url,
+        )
+
+    def _on_web_false_alarm_feedback(self, reason: str):
+        return self.placement_adapter.record_false_alarm_feedback(
+            reason=reason,
+            csi_engine=self.engine,
+            dual_engine=self.dual_engine,
+        )
+
+    def _on_ha_command(self, topic: str, payload: str):
+        if topic.endswith("/inspect"):
+            self._on_web_trigger_inspect(reason="Home Assistant 远程触发定向核验")
+        elif topic.endswith("/security_mode"):
+            self._on_web_mode_changed(payload)
+
+    def _on_request_burst_rate(self, target_hz: int):
+        """向硬件探针串口下发激振采样率控制命令 (如 BURST_RATE:100)"""
+        shared_system_state["sample_rate"] = float(target_hz)
+        logger.info(f"[BurstControl] 射频采样率调控指令已激活: 目标 {target_hz} Hz")
+        if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
+            try:
+                cmd = f"BURST_RATE:{target_hz}\n".encode("utf-8")
+                self._active_csi_serial.write(cmd)
+            except Exception as e:
+                logger.debug(f"[BurstControl] 串口写入提频指令未成功: {e}")
+
+    def _on_trigger_challenge(self, prompt_msg: str):
+        """阶段 2：疑似跌倒持续静止，向硬件蜂鸣器/语音网关发起本地质询"""
+        logger.info(f"[ChallengeWindow] {prompt_msg}")
+        if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
+            try:
+                self._active_csi_serial.write(b"CHALLENGE_BEEP:1\n")
+            except Exception:
+                pass
+
+    def _on_challenge_intercepted(self, details: str):
+        """阶段 2：质询窗口内老人主动微动或按键应答，成功拦截潜在误报"""
+        self.pilot_manager.record_challenge_intercept()
+        shared_system_state["pilot"] = self.pilot_manager.get_pilot_dashboard()
+
+    def _on_web_challenge_acknowledge(self, source: str):
+        self.engine.detector.targeted_inspector.acknowledge_safe(source=source)
+        if self.dual_engine:
+            self.dual_engine.csi_detector.targeted_inspector.acknowledge_safe(source=source)
 
     def _handle_exit_signal(self, signum, frame):
         logger.info(f"收到系统信号 ({signum})，正在优雅关闭 SafeHalo 服务...")
@@ -184,15 +277,26 @@ class SafeHaloSupervisor:
         shared_system_state["routine"] = self.routine_monitor.get_summary()
 
     def _on_fall_alarm(self, features: CSIFeatures):
+        room = shared_system_state.get("multilink", {}).get("active_room") or self.placement_adapter.current_config.room_name
+        details = f"经历剧烈冲击→持续静止→本地质询无应答，均值方差: {features.mean_variance:.6f}"
         logger.log_fall_confirmed(
-            details=f"跌倒倒地未见起身，均值方差: {features.mean_variance:.6f}",
+            details=details,
             bpm=18.0,
             confidence=0.96
         )
+        # 阶段 2: 记录告警事件并同步推送微信小程序订阅消息
+        self.incident_manager.record_incident(
+            room_name=room,
+            event_type="FALL_ALARM",
+            confidence=0.96,
+            respiration_bpm=18.0,
+            details=details,
+            household_id=self.pilot_manager.active_household_id,
+        )
         self.notifier.send_fall_alarm(
-            room_name="监测覆盖区域",
+            room_name=room,
             confidence="96%",
-            details="倒地后长时间未探测到自主起身活动"
+            details="倒地后经声光质询无应答且长时间未探测到自主起身活动"
         )
 
     def _on_intruder_alarm(self, alert_level, msg: str, features: CSIFeatures):
@@ -367,6 +471,7 @@ class SafeHaloSupervisor:
                 continue
 
             logger.info(f"硬件串口已接通: {port}，Wi-Fi CSI 实时安全守护已就绪！")
+            self._active_csi_serial = ser
             shared_system_state["state"] = "CALIBRATING"
 
             try:
@@ -380,6 +485,22 @@ class SafeHaloSupervisor:
                     res = self.engine.feed_line(line)
                     if self.dual_engine:
                         self.dual_engine.feed_csi_line(line)
+                    ml_res = self.multilink_engine.feed_line(line)
+                    if ml_res:
+                        shared_system_state["multilink"] = {
+                            "active_room": ml_res.active_room,
+                            "participating_links": ml_res.participating_links,
+                            "fused_energy": round(ml_res.fused_energy, 5),
+                            "links": {
+                                mac: {
+                                    "room": t.room_name,
+                                    "state": t.current_state.value,
+                                    "packets": t.packet_count,
+                                    "diff_energy": round(t.diff_energy, 5),
+                                }
+                                for mac, t in ml_res.link_details.items()
+                            },
+                        }
                     if res:
                         _, feats, state = res
                         shared_system_state["variance"] = feats.mean_variance
@@ -393,6 +514,7 @@ class SafeHaloSupervisor:
                 logger.warning(f"数据读取中断或硬件掉电: {e}，正在进入自愈重连流程...")
                 shared_system_state["state"] = "ROUTER_OFFLINE"
             finally:
+                self._active_csi_serial = None
                 if ser:
                     try:
                         ser.close()

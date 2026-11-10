@@ -7,11 +7,16 @@ SafeHalo 移动端通知与告警模块 (notifier.py)
 """
 
 import json
+import os
 import urllib.request
 import urllib.error
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Optional
 from .logger import logger
+
+NOTIFIER_CONFIG_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "logs", "notifier_config.json")
+)
 
 class AlertNotifier:
     def __init__(
@@ -20,17 +25,79 @@ class AlertNotifier:
         serverchan_key: Optional[str] = None,
         webhook_url: Optional[str] = None,
         ha_webhook_url: Optional[str] = None,
+        sms_webhook_url: Optional[str] = None,
+        config_file: str = NOTIFIER_CONFIG_PATH,
     ):
         """
         :param pushplus_token: PushPlus (微信关注推送加公众号即可推送，免费支持多人接收)
         :param serverchan_key: Server酱 SendKey (微信推送)
         :param webhook_url: 企业微信/飞书/钉钉机器人 Webhook 地址
         :param ha_webhook_url: Home Assistant 原生自动化 Webhook 地址 (如 http://homeassistant.local:8123/api/webhook/safehalo_fall)
+        :param sms_webhook_url: 短信 / 语音外呼网关 Webhook 地址 (如阿里云、腾讯云或 Twilio 语音外呼触发接口)
         """
+        self.config_file = config_file
         self.pushplus_token = pushplus_token
         self.serverchan_key = serverchan_key
         self.webhook_url = webhook_url
         self.ha_webhook_url = ha_webhook_url
+        self.sms_webhook_url = sms_webhook_url
+
+        # 若未显式传入，尝试加载已持久化的配置
+        self._load_persisted_config()
+
+    def _load_persisted_config(self):
+        if os.path.exists(self.config_file):
+            try:
+                with open(self.config_file, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    if not self.pushplus_token:
+                        self.pushplus_token = cfg.get("pushplus_token") or None
+                    if not self.serverchan_key:
+                        self.serverchan_key = cfg.get("serverchan_key") or None
+                    if not self.webhook_url:
+                        self.webhook_url = cfg.get("webhook_url") or None
+                    if not self.ha_webhook_url:
+                        self.ha_webhook_url = cfg.get("ha_webhook_url") or None
+                    if not self.sms_webhook_url:
+                        self.sms_webhook_url = cfg.get("sms_webhook_url") or None
+            except Exception as e:
+                logger.error(f"[Notifier] 读取通知配置失败: {e}")
+
+    def update_config(
+        self,
+        pushplus_token: Optional[str] = None,
+        serverchan_key: Optional[str] = None,
+        webhook_url: Optional[str] = None,
+        ha_webhook_url: Optional[str] = None,
+        sms_webhook_url: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """更新并持久化移动端通知凭据"""
+        if pushplus_token is not None:
+            self.pushplus_token = pushplus_token.strip() or None
+        if serverchan_key is not None:
+            self.serverchan_key = serverchan_key.strip() or None
+        if webhook_url is not None:
+            self.webhook_url = webhook_url.strip() or None
+        if ha_webhook_url is not None:
+            self.ha_webhook_url = ha_webhook_url.strip() or None
+        if sms_webhook_url is not None:
+            self.sms_webhook_url = sms_webhook_url.strip() or None
+
+        payload = {
+            "pushplus_token": self.pushplus_token or "",
+            "serverchan_key": self.serverchan_key or "",
+            "webhook_url": self.webhook_url or "",
+            "ha_webhook_url": self.ha_webhook_url or "",
+            "sms_webhook_url": self.sms_webhook_url or "",
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        try:
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            with open(self.config_file, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"[Notifier] 保存通知配置失败: {e}")
+        return payload
 
     def send_fall_alarm(self, room_name: str = "老人卧室", confidence: str = "高", details: str = "") -> bool:
         """
@@ -71,7 +138,16 @@ class AlertNotifier:
                 details=details
             ) or success
 
-        if not (self.pushplus_token or self.serverchan_key or self.webhook_url):
+        # 5. 短信 / 语音电话强提醒外呼网关 Webhook
+        if self.sms_webhook_url:
+            success = self._send_sms_voice_webhook(
+                event="fall_alarm",
+                room_name=room_name,
+                title=title,
+                details=details,
+            ) or success
+
+        if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.ha_webhook_url or self.sms_webhook_url):
             logger.info(f"[Notifier 本地模拟推送] {title} - {details}")
             return True
 
@@ -181,6 +257,19 @@ class AlertNotifier:
             "timestamp": datetime.now().isoformat()
         }
         return self._http_post_json(self.ha_webhook_url, payload)
+
+    def _send_sms_voice_webhook(self, event: str, room_name: str, title: str, details: str) -> bool:
+        """向短信/语音外呼网关发送告警触发载荷"""
+        payload = {
+            "source": "SafeHalo",
+            "event": event,
+            "room": room_name,
+            "title": title,
+            "details": details,
+            "priority": "CRITICAL",
+            "timestamp": datetime.now().isoformat(),
+        }
+        return self._http_post_json(self.sms_webhook_url, payload)
 
     def _http_post_json(self, url: str, data_dict: dict) -> bool:
         try:

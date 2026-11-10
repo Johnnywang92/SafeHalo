@@ -13,6 +13,7 @@ from typing import Callable, Optional
 from .feature_extractor import CSIFeatures
 from .pet_filter import PetImmunityFilter, PetDiscriminationResult
 from .targeted_inspector import TargetedFallInspector, TargetedInspectionState, TargetedInspectionResult
+from .auto_calibrator import ContinuousAutoCalibrator
 from .logger import logger
 
 class HumanState(Enum):
@@ -34,6 +35,10 @@ class RouterCSIDetector:
         router_max_jitter_ms: float = 250.0,
         on_state_change: Optional[Callable[[HumanState, HumanState, CSIFeatures], None]] = None,
         on_fall_alarm: Optional[Callable[[CSIFeatures], None]] = None,
+        on_request_burst_rate: Optional[Callable[[int], None]] = None,
+        on_trigger_challenge: Optional[Callable[[str], None]] = None,
+        on_challenge_intercepted: Optional[Callable[[str], None]] = None,
+        auto_calibrator: Optional[ContinuousAutoCalibrator] = None,
     ):
         self.calibration_seconds = calibration_seconds
         self.fall_spike_threshold = fall_spike_threshold
@@ -41,14 +46,20 @@ class RouterCSIDetector:
         self.router_max_jitter_ms = router_max_jitter_ms
         self.on_state_change = on_state_change
         self.on_fall_alarm = on_fall_alarm
+        self.on_request_burst_rate = on_request_burst_rate
+        self.on_trigger_challenge = on_trigger_challenge
+        self.on_challenge_intercepted = on_challenge_intercepted
 
         self.current_state = HumanState.CALIBRATING
         self.state_start_time = 0.0
 
+        # 多日环境基线自动学习器 (阶段 2)
+        self.auto_calibrator = auto_calibrator or ContinuousAutoCalibrator()
+
         # 校准统计数据
         self.calib_samples = 0
-        self.base_variance = 0.0001
-        self.base_diff = 0.001
+        self.base_variance = self.auto_calibrator.state.base_variance
+        self.base_diff = self.auto_calibrator.state.base_diff
         self.calib_start_time: Optional[float] = None
         self._calib_var_list = []
         self._calib_diff_list = []
@@ -62,7 +73,9 @@ class RouterCSIDetector:
 
         # 定向深度排查与主动核验引擎
         self.targeted_inspector = TargetedFallInspector(
-            inspection_duration_seconds=fall_stillness_seconds
+            inspection_duration_seconds=fall_stillness_seconds,
+            on_request_burst_rate=on_request_burst_rate,
+            on_trigger_challenge=on_trigger_challenge,
         )
 
         # 状态去抖动
@@ -95,12 +108,19 @@ class RouterCSIDetector:
 
             elapsed = now - self.calib_start_time
             if elapsed >= self.calibration_seconds:
-                # 校准完成，取中位数作为稳定基线
+                # 校准完成，取中位数并经由多日自动校准器检验抗污染
                 self._calib_var_list.sort()
                 self._calib_diff_list.sort()
                 n = len(self._calib_var_list)
-                self.base_variance = max(1e-6, self._calib_var_list[n // 2])
-                self.base_diff = max(1e-5, self._calib_diff_list[n // 2])
+                cand_var = max(1e-6, self._calib_var_list[n // 2])
+                cand_diff = max(1e-5, self._calib_diff_list[n // 2])
+                eff_var, eff_diff, is_clean = self.auto_calibrator.validate_initial_calibration(
+                    candidate_variance=cand_var,
+                    candidate_diff=cand_diff,
+                    timestamp=now,
+                )
+                self.base_variance = eff_var if not is_clean else cand_var
+                self.base_diff = eff_diff if not is_clean else cand_diff
                 self._switch_state(HumanState.EMPTY, features)
             return self.current_state
 
@@ -159,8 +179,13 @@ class RouterCSIDetector:
                     return self.current_state
 
                 elif verdict.state == TargetedInspectionState.VERDICT_RECOVERED:
-                    # 自主站起翻身，解除预警
+                    # 自主站起翻身或质询期内应答，解除预警
                     logger.log_event("INSPECTION_RECOVERED", verdict.details, level="INFO")
+                    if verdict.challenge_intercepted and self.on_challenge_intercepted:
+                        try:
+                            self.on_challenge_intercepted(verdict.details)
+                        except Exception:
+                            pass
                     self.fall_spike_time = None
                     self._switch_state(HumanState.MOVING, features)
                     return self.current_state
@@ -199,6 +224,23 @@ class RouterCSIDetector:
             raw_target = HumanState.STATIC
         else:
             raw_target = HumanState.EMPTY
+            # 在持续 EMPTY 静默阶段，驱动多日环境基线自动微调演进 (温漂与家具挪动自适应)
+            updated_base = self.auto_calibrator.observe_frame(
+                is_empty_or_quiet=True,
+                mean_variance=features.mean_variance,
+                diff_energy=features.diff_energy,
+                timestamp=now,
+            )
+            if updated_base:
+                self.base_variance, self.base_diff = updated_base
+
+        if raw_target != HumanState.EMPTY:
+            self.auto_calibrator.observe_frame(
+                is_empty_or_quiet=False,
+                mean_variance=features.mean_variance,
+                diff_energy=features.diff_energy,
+                timestamp=now,
+            )
 
         # 去抖动平滑 (连续 3 帧一致才切换状态，避免单帧波动)
         if raw_target != self.current_state:

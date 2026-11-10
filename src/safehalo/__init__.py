@@ -33,6 +33,18 @@ from .placement_adapter import (
     RoomType,
     MountHeightLevel,
 )
+from .auto_calibrator import ContinuousAutoCalibrator, BaselineModelState
+from .miniprogram_bridge import (
+    WeChatMiniProgramBridge,
+    IncidentFeedbackManager,
+    AlertIncidentRecord,
+    IncidentStatus,
+)
+from .pilot_telemetry import (
+    PilotHouseholdManager,
+    PilotHouseholdProfile,
+    MonthlyHouseholdStats,
+)
 
 __all__ = [
     "CSIPacket",

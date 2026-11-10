@@ -18,9 +18,13 @@ from .notifier import AlertNotifier
 from .logger import logger
 from .auth_manager import auth_manager
 from .placement_adapter import PlacementAdapter, RoomPlacementConfig, TunedParameters
+from .pilot_telemetry import PilotHouseholdManager
+from .miniprogram_bridge import IncidentFeedbackManager, WeChatMiniProgramBridge
 
-# 全局摆放自适应协调器实例
+# 全局摆放自适应协调器与阶段 2 试点/事件管理实例
 placement_adapter = PlacementAdapter()
+pilot_manager = PilotHouseholdManager()
+incident_manager = IncidentFeedbackManager()
 
 # 全局共享状态字典 (供算法后台线程与 Web 前端交互)
 shared_system_state = {
@@ -62,6 +66,19 @@ shared_system_state = {
         "neighbor_nodes_detected": 0,
         "channel_advice": "当前无线信道纯净，无显著同频邻居串扰。",
     },
+    "multilink": {
+        "active_room": placement_adapter.current_config.room_name,
+        "participating_links": 1,
+        "fused_energy": 0.0,
+        "links": {},
+    },
+    "auto_calibration": {
+        "learning_days": 1,
+        "quiet_windows_learned": 0,
+        "maturity_percent": 25.0,
+        "boot_contamination_rejected": 0,
+    },
+    "pilot": pilot_manager.get_pilot_dashboard(),
     "recent_events": [
         {"time": datetime.now().strftime("%H:%M:%S"), "text": "SafeHalo 系统启动，完成基线自适应校准"}
     ]
@@ -170,6 +187,27 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 "config": asdict(placement_adapter.current_config),
                 "tuned_parameters": asdict(placement_adapter.current_tuned_params),
                 "is_configured": placement_adapter.current_config.is_configured,
+            })
+            return
+
+        # 1.5 多链路空间分集与房间级微定位状态 (公开)
+        if self.path == "/api/multilink":
+            self._send_json(200, shared_system_state.get("multilink", {}))
+            return
+
+        # 1.6 阶段 2：3~5 户入户试点月度误报统计与多日自校准看板 (公开遥测)
+        if self.path == "/api/phase2/pilot":
+            self._send_json(200, {
+                "pilot_dashboard": pilot_manager.get_pilot_dashboard(),
+                "auto_calibration": shared_system_state.get("auto_calibration", {}),
+                "recent_incidents": incident_manager.list_recent_incidents(limit=10),
+            })
+            return
+
+        # 1.7 阶段 2：告警事件与反馈列表查询 (公开/小程序端拉取)
+        if self.path == "/api/incidents":
+            self._send_json(200, {
+                "incidents": incident_manager.list_recent_incidents(limit=30),
             })
             return
 
@@ -294,6 +332,51 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
+        # 1.2 阶段 2：本地交互质询安全应答接口 (支持老人一键按键/语音网关免登取消误报)
+        if self.path == "/api/challenge/acknowledge":
+            source = data.get("source", "本地按钮/语音安全应答")
+            if hasattr(SafeHaloWebHandler, "on_challenge_acknowledge") and SafeHaloWebHandler.on_challenge_acknowledge:
+                SafeHaloWebHandler.on_challenge_acknowledge(source)
+            pilot_manager.record_challenge_intercept(household_id=data.get("household_id"))
+            shared_system_state["state"] = "MOVING"
+            shared_system_state["pilot"] = pilot_manager.get_pilot_dashboard()
+            self._send_json(200, {
+                "success": True,
+                "message": "已收到安全确认应答，疑似跌倒警报已本地解除，未打扰家属。",
+            })
+            return
+
+        # 1.3 阶段 2：小程序端/家属端事件确认与误报反馈回调 (支持小程序 Webhook 直接回调)
+        if self.path == "/api/incidents/feedback":
+            evt_id = data.get("event_id")
+            is_false = bool(data.get("is_false_alarm", True))
+            cat = data.get("category", "other")
+            notes = data.get("notes", "")
+            h_id = data.get("household_id", pilot_manager.active_household_id)
+            ok, msg, rec = incident_manager.submit_feedback(
+                event_id=evt_id,
+                is_false_alarm=is_false,
+                category=cat,
+                notes=notes,
+                operator=data.get("operator", "miniprogram_family"),
+                placement_adapter=placement_adapter,
+            )
+            if is_false:
+                pilot_manager.record_false_alarm(household_id=h_id, category=cat)
+                if hasattr(SafeHaloWebHandler, "on_false_alarm_feedback") and SafeHaloWebHandler.on_false_alarm_feedback:
+                    SafeHaloWebHandler.on_false_alarm_feedback(f"[{cat}] {notes}")
+            else:
+                pilot_manager.record_true_alarm(household_id=h_id)
+            shared_system_state["pilot"] = pilot_manager.get_pilot_dashboard()
+            from dataclasses import asdict
+            self._send_json(200, {
+                "success": ok,
+                "message": msg,
+                "incident": asdict(rec) if rec else None,
+                "pilot_dashboard": shared_system_state["pilot"],
+            })
+            return
+
         # --- 以下 POST 操作均需要有效登录态 ---
         sess = self._get_session()
         if not sess:
@@ -343,16 +426,33 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200 if ok else 400, {"success": ok, "message": msg})
             return
 
-        # 6. 发送手机测试告警 (仅管理员权限)
+        # 6. 发送手机测试告警并保存配置 (仅管理员权限)
         if self.path == "/api/test_push":
             if sess.get("role") != "admin":
                 self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可触发测试推送"})
                 return
             token = data.get("pushplus_token", "").strip()
-            notifier = AlertNotifier(pushplus_token=token if token else None)
+            webhook_url = data.get("webhook_url", "").strip()
+            sms_webhook_url = data.get("sms_webhook_url", "").strip()
+            notifier = AlertNotifier(
+                pushplus_token=token if token else None,
+                webhook_url=webhook_url if webhook_url else None,
+                sms_webhook_url=sms_webhook_url if sms_webhook_url else None,
+            )
+            if token or webhook_url or sms_webhook_url:
+                notifier.update_config(
+                    pushplus_token=token if token else None,
+                    webhook_url=webhook_url if webhook_url else None,
+                    sms_webhook_url=sms_webhook_url if sms_webhook_url else None,
+                )
+                if hasattr(SafeHaloWebHandler, "on_notifier_updated") and SafeHaloWebHandler.on_notifier_updated:
+                    try:
+                        SafeHaloWebHandler.on_notifier_updated(notifier)
+                    except Exception as e:
+                        logger.error(f"同步通知配置回调失败: {e}")
             success = notifier.send_fall_alarm(room_name="家庭测试区域", details=f"管理员 [{sess['username']}] 点击控制台【发送测试告警】")
             log_event(f"用户 [{sess['username']}] 触发手机测试告警推送 (结果: {'成功' if success else '模拟发送'})")
-            self._send_json(200, {"success": success, "message": "测试告警已发送，请检查微信通知！"})
+            self._send_json(200, {"success": success, "message": "测试告警已发送并保存配置，请检查微信通知！"})
             return
 
         # 7. 手动触发定向排查 (所有登录成员均可关心老人)
@@ -360,6 +460,11 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             log_event(f"成员 [{sess['username']}] 手动请求【启动定向深度排查】(激振提频至 100Hz)")
             shared_system_state["state"] = "FALL_SUSPECT"
             shared_system_state["sample_rate"] = 100.0
+            if hasattr(SafeHaloWebHandler, "on_trigger_inspect") and SafeHaloWebHandler.on_trigger_inspect:
+                try:
+                    SafeHaloWebHandler.on_trigger_inspect(f"成员 [{sess['username']}] 手动触发深度核验")
+                except Exception as e:
+                    logger.error(f"下发定向排查回调失败: {e}")
             self._send_json(200, {
                 "success": True,
                 "message": "已向射频节点下发指令：提频至 100Hz，正在定向聚焦地面生命呼吸体征..."
@@ -373,8 +478,29 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 return
             mode = data.get("mode", "FALL_GUARD")
             shared_system_state["security_mode"] = mode
+            if hasattr(SafeHaloWebHandler, "on_mode_changed") and SafeHaloWebHandler.on_mode_changed:
+                try:
+                    SafeHaloWebHandler.on_mode_changed(mode)
+                except Exception as e:
+                    logger.error(f"下发安防模式切换回调失败: {e}")
             log_event(f"安防守护模式已由管理员 [{sess['username']}] 切换为: {mode}")
             self._send_json(200, {"success": True, "message": f"模式已切换为 {mode}"})
+            return
+
+        # 8.5 家属提交误报反馈，触发算法阈值自适应上调 (登录成员可用)
+        if self.path == "/api/feedback/false_alarm":
+            reason = data.get("reason", "家属在控制台标记误报")
+            if hasattr(SafeHaloWebHandler, "on_false_alarm_feedback") and SafeHaloWebHandler.on_false_alarm_feedback:
+                tuned = SafeHaloWebHandler.on_false_alarm_feedback(reason)
+            else:
+                tuned = placement_adapter.record_false_alarm_feedback(reason=reason)
+            shared_system_state["state"] = "EMPTY"
+            from dataclasses import asdict
+            self._send_json(200, {
+                "success": True,
+                "message": f"已记录误报反馈并自动优化抗扰门限（新冲击阈值: {tuned.fall_spike_threshold}）",
+                "tuned_parameters": asdict(tuned),
+            })
             return
 
         # 9. 清空系统与审计日志 (仅管理员权限)

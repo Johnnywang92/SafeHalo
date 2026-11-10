@@ -16,7 +16,9 @@ class RouterSignalFilter:
         guard_band_cutoff: int = 6,
         remove_dc: bool = True,
         hampel_window: int = 5,
-        hampel_threshold: float = 3.0
+        hampel_threshold: float = 3.0,
+        water_flow_damping: bool = False,
+        metal_multipath_damping: bool = False,
     ):
         """
         :param num_subcarriers: 子载波总数 (HT20 默认为 64，实际有效数据子载波通常约 52 个)
@@ -24,15 +26,20 @@ class RouterSignalFilter:
         :param remove_dc: 是否移除中心直流子载波 (DC subcarrier)
         :param hampel_window: 时域去脉冲噪点的滑动窗口大小
         :param hampel_threshold: 离群点判决的西格玛倍数
+        :param water_flow_damping: 卫生间花洒水流高频散射微动阻尼
+        :param metal_multipath_damping: 厨房大面积金属电器谐振反射阻尼
         """
         self.num_subcarriers = num_subcarriers
         self.guard_band_cutoff = guard_band_cutoff
         self.remove_dc = remove_dc
         self.hampel_window = hampel_window
         self.hampel_threshold = hampel_threshold
+        self.water_flow_damping = water_flow_damping
+        self.metal_multipath_damping = metal_multipath_damping
 
         # 历史缓冲队列，用于时域滤波 (子载波数 x 窗口大小)
         self.history_buffers: List[List[float]] = []
+        self._ema_state: List[float] = []
 
     def get_valid_subcarrier_indices(self, total: int) -> List[int]:
         """
@@ -101,6 +108,12 @@ class RouterSignalFilter:
         valid_indices = self.get_valid_subcarrier_indices(len(raw_amplitudes))
         extracted = [raw_amplitudes[i] for i in valid_indices]
 
+        # 1.5 厨房金属多径谐振阻尼 (钳制金属表面引起的局部子载波驻波尖峰)
+        if self.metal_multipath_damping and extracted:
+            mean_amp = sum(extracted) / len(extracted)
+            cap = mean_amp * 2.2
+            extracted = [min(val, cap) for val in extracted]
+
         # 2. 消除路由器全局功率抖动 (AGC Normalization)
         normed = self.normalize_agc(extracted)
 
@@ -108,15 +121,21 @@ class RouterSignalFilter:
         m = len(normed)
         if len(self.history_buffers) != m:
             self.history_buffers = [[val] for val in normed]
+            self._ema_state = list(normed)
             return normed
 
         filtered_amps = []
         for i, val in enumerate(normed):
             buf = self.history_buffers[i]
             buf.append(val)
-            if len(buf) > self.hampel_window:
+            while len(buf) > self.hampel_window:
                 buf.pop(0)
             clean_val = self.remove_hampel_outliers(buf)
+            # 卫生间花洒水流高频散射阻尼 (一阶低通平滑高频水滴抖动，保留人体大趋势)
+            if self.water_flow_damping:
+                prev_ema = self._ema_state[i] if i < len(self._ema_state) else clean_val
+                clean_val = 0.65 * prev_ema + 0.35 * clean_val
+                self._ema_state[i] = clean_val
             filtered_amps.append(clean_val)
 
         return filtered_amps

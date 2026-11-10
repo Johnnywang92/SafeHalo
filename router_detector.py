@@ -21,6 +21,7 @@ import random
 import sys
 import time
 from datetime import datetime
+from typing import Optional
 
 from src.safehalo.router_csi_engine import RouterCSIEngine
 from src.safehalo.detector import HumanState
@@ -194,8 +195,10 @@ def run_demo_with_handler(alarm_handler):
 
     print("\n\n仿真完成，所有状态转移与跌倒逻辑均验证通过！")
 
-def run_live(port: str, baud: int, router_mac: str):
+def run_live(port: str, baud: int, router_mac: str, alarm_handler=None):
     """真实串口监听模式"""
+    if alarm_handler is None:
+        alarm_handler = make_fall_alarm_handler()
     print(f"{COLOR_BOLD}=== SafeHalo 纯路由器 CSI 实时检测引擎已启动 ==={COLOR_RESET}")
     print(f"监听串口: {port} | 波特率: {baud}")
     logger.info(f"SafeHalo 启动串口实时监听: {port}, 波特率: {baud}, MAC白名单: {router_mac or '全部'}")
@@ -209,7 +212,7 @@ def run_live(port: str, baud: int, router_mac: str):
         calibration_seconds=6.0,
         fall_stillness_seconds=6.0,
         on_state_change=on_state_change,
-        on_fall_alarm=on_fall_alarm,
+        on_fall_alarm=alarm_handler,
     )
 
     ser = None
@@ -251,8 +254,10 @@ def run_live(port: str, baud: int, router_mac: str):
         if ser:
             ser.close()
 
-def run_file(filepath: str, router_mac: str):
+def run_file(filepath: str, router_mac: str, alarm_handler=None):
     """离线文件重放模式"""
+    if alarm_handler is None:
+        alarm_handler = make_fall_alarm_handler()
     print(f"正在重放文件: {filepath}")
     logger.info(f"SafeHalo 启动离线文件重放: {filepath}")
     engine = RouterCSIEngine(
@@ -260,7 +265,7 @@ def run_file(filepath: str, router_mac: str):
         calibration_seconds=4.0,
         fall_stillness_seconds=5.0,
         on_state_change=on_state_change,
-        on_fall_alarm=on_fall_alarm,
+        on_fall_alarm=alarm_handler,
     )
 
     with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
@@ -300,9 +305,9 @@ def main():
         # 传递自定义报警函数给 demo
         run_demo_with_handler(alarm_cb)
     elif args.file:
-        run_file(args.file, args.router_mac)
+        run_file(args.file, args.router_mac, alarm_cb)
     elif args.port:
-        run_live(args.port, args.baud, args.router_mac)
+        run_live(args.port, args.baud, args.router_mac, alarm_cb)
 
 if __name__ == "__main__":
     main()

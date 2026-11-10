@@ -321,6 +321,28 @@ class RoutineMonitorEngine:
                     )
                     detected.append(evt)
 
+        # ------------------------------------------------------------------
+        # 异常 5: 【深夜严重未眠 / 异常活动预警】
+        # 凌晨 02:00 - 04:30 尚未入睡且当前小时内持续发生大幅活动
+        # ------------------------------------------------------------------
+        if (2.0 <= current_hour_float <= 4.5) and self.is_currently_home and not self.metrics.went_to_bed:
+            if self.metrics.hourly_activity[dt.hour] >= 3:
+                if self._can_alert(RoutineAnomalyType.IRREGULAR_LATE_SLEEP, now_ts, cooldown_sec=3600 * 4):
+                    evt = RoutineAnomalyEvent(
+                        anomaly_type=RoutineAnomalyType.IRREGULAR_LATE_SLEEP,
+                        title="【作息偏离】深夜严重未眠与异常活动预警",
+                        description=(
+                            f"当前已至凌晨 {dt.strftime('%H:%M')}（往常入睡基准: "
+                            f"{int(self.config.typical_bed_hour):02d}:{int((self.config.typical_bed_hour % 1) * 60):02d}），"
+                            f"老人仍未入睡且持续走动，请留意是否发生严重失眠、焦虑或突发身体不适！"
+                        ),
+                        severity="WARNING",
+                        timestamp=now_ts,
+                        time_str=dt.strftime("%H:%M:%S"),
+                        details={"hour_activity": self.metrics.hourly_activity[dt.hour]},
+                    )
+                    detected.append(evt)
+
         # 派发回调与记录
         for evt in detected:
             self._dispatch_anomaly(evt)
