@@ -29,6 +29,7 @@ from src.safehalo.notifier import AlertNotifier
 from src.safehalo.security_guard import SecurityGuardEngine, SecurityMode
 from src.safehalo.web_portal import SafeHaloWebHandler, shared_system_state, start_portal_server
 from src.safehalo.dual_fusion_engine import DualSensorFusionEngine, FusedState, FusedPerceptionResult
+from src.safehalo.ha_discovery import HomeAssistantBridge
 import socketserver
 
 class SafeHaloSupervisor:
@@ -45,6 +46,11 @@ class SafeHaloSupervisor:
         radar_serial: Optional[str] = None,
         radar_baud: int = 115200,
         radar_protocol: str = "auto",
+        ha_mqtt_host: Optional[str] = None,
+        ha_mqtt_port: int = 1883,
+        ha_mqtt_user: Optional[str] = None,
+        ha_mqtt_pass: Optional[str] = None,
+        ha_webhook: Optional[str] = None,
     ):
         self.web_port = web_port
         self.web_host = web_host
@@ -56,10 +62,28 @@ class SafeHaloSupervisor:
         self.radar_serial = radar_serial
         self.radar_baud = radar_baud
         self.radar_protocol = radar_protocol
+        self.ha_mqtt_host = ha_mqtt_host
+        self.ha_mqtt_port = ha_mqtt_port
+        self.ha_mqtt_user = ha_mqtt_user
+        self.ha_mqtt_pass = ha_mqtt_pass
+        self.ha_webhook = ha_webhook
 
         self.running = True
-        self.notifier = AlertNotifier(pushplus_token=pushplus_token)
+        self.notifier = AlertNotifier(
+            pushplus_token=pushplus_token,
+            ha_webhook_url=ha_webhook,
+        )
         self.httpd = None
+
+        # Home Assistant 自动发现桥接器
+        self.ha_bridge = HomeAssistantBridge(
+            mqtt_host=ha_mqtt_host,
+            mqtt_port=ha_mqtt_port,
+            mqtt_user=ha_mqtt_user,
+            mqtt_pass=ha_mqtt_pass,
+            device_id="safehalo_router_gateway",
+            device_name="SafeHalo 空间感知网关",
+        ) if self.ha_mqtt_host else None
 
         # 注册系统退出信号 (SIGINT, SIGTERM)
         signal.signal(signal.SIGINT, self._handle_exit_signal)
@@ -109,6 +133,19 @@ class SafeHaloSupervisor:
         # 联动安防布防引擎
         self.security_guard.process_state(new_state, features)
 
+        # 同步至 Home Assistant
+        if self.ha_bridge:
+            self.ha_bridge.publish_state(
+                human_state=new_state.value,
+                is_fall=(new_state == HumanState.FALL_CONFIRMED),
+                is_presence=(new_state not in (HumanState.EMPTY, HumanState.CALIBRATING)),
+                is_moving=(new_state == HumanState.MOVING),
+                is_pet=(new_state == HumanState.PET_ACTIVITY),
+                radar_z=shared_system_state.get("radar_z", 0.0),
+                respiration_bpm=shared_system_state.get("radar_bpm", 0.0),
+                confidence=shared_system_state.get("fused_confidence", 1.0),
+            )
+
     def _on_fall_alarm(self, features: CSIFeatures):
         logger.log_fall_confirmed(
             details=f"跌倒倒地未见起身，均值方差: {features.mean_variance:.6f}",
@@ -136,6 +173,19 @@ class SafeHaloSupervisor:
         shared_system_state["radar_bpm"] = res.radar_respiration_bpm
         shared_system_state["radar_online"] = True
         shared_system_state["radar_protocol"] = self.radar_protocol
+
+        # 同步至 Home Assistant
+        if self.ha_bridge:
+            self.ha_bridge.publish_state(
+                human_state=new_state.value,
+                is_fall=(new_state == FusedState.FALL_CONFIRMED),
+                is_presence=(new_state not in (FusedState.EMPTY, FusedState.CALIBRATING)),
+                is_moving=(new_state == FusedState.NORMAL_ACTIVITY),
+                is_pet=(new_state == FusedState.PET_ACTIVITY),
+                radar_z=res.radar_z,
+                respiration_bpm=res.radar_respiration_bpm,
+                confidence=res.fused_confidence,
+            )
 
     def _on_fused_fall_alarm(self, res: FusedPerceptionResult):
         logger.log_fall_confirmed(
@@ -305,11 +355,15 @@ class SafeHaloSupervisor:
         # 1. 启动 Web 远程管理控制台
         self.start_web_server_thread()
 
-        # 2. 启动毫米波雷达双模融合子系统 (若已配置)
+        # 2. 启动 Home Assistant MQTT 自动发现网桥 (若已配置)
+        if self.ha_bridge:
+            self.ha_bridge.start()
+
+        # 3. 启动毫米波雷达双模融合子系统 (若已配置)
         if self.radar_serial:
             self.start_radar_thread()
 
-        # 3. 启动 CSI 检测引擎主循环
+        # 4. 启动 CSI 检测引擎主循环
         self.run_csi_engine_loop()
 
 def main():
@@ -322,6 +376,11 @@ def main():
     parser.add_argument("--radar-serial", type=str, default=None, help="毫米波雷达串口设备路径 (如 /dev/ttyUSB1 或 /dev/ttyS1)")
     parser.add_argument("--radar-baud", type=int, default=115200, help="毫米波雷达波特率 (默认 115200)")
     parser.add_argument("--radar-protocol", type=str, default="auto", choices=["auto", "ld2410", "ld2450", "mr60fda1", "json"], help="毫米波雷达数据协议")
+    parser.add_argument("--ha-mqtt-host", type=str, default=None, help="Home Assistant MQTT Broker IP/地址 (如 192.168.1.100)")
+    parser.add_argument("--ha-mqtt-port", type=int, default=1883, help="Home Assistant MQTT 端口 (默认 1883)")
+    parser.add_argument("--ha-mqtt-user", type=str, default=None, help="Home Assistant MQTT 用户名")
+    parser.add_argument("--ha-mqtt-pass", type=str, default=None, help="Home Assistant MQTT 密码")
+    parser.add_argument("--ha-webhook", type=str, default=None, help="Home Assistant 自动化 Webhook 地址")
     parser.add_argument("--demo", action="store_true", help="无硬件仿真运行模式")
     parser.add_argument("--pushplus-token", type=str, default=None, help="微信 PushPlus 告警 Token")
     parser.add_argument("--wait-network", type=float, default=2.0, help="开机缓冲时间 (秒)")
@@ -340,6 +399,11 @@ def main():
         radar_serial=args.radar_serial,
         radar_baud=args.radar_baud,
         radar_protocol=args.radar_protocol,
+        ha_mqtt_host=args.ha_mqtt_host,
+        ha_mqtt_port=args.ha_mqtt_port,
+        ha_mqtt_user=args.ha_mqtt_user,
+        ha_mqtt_pass=args.ha_mqtt_pass,
+        ha_webhook=args.ha_webhook,
     )
 
     supervisor.start()

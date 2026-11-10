@@ -98,6 +98,28 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(200, {"authenticated": False, "user": None})
             return
 
+        # 1.1 Home Assistant RESTful 传感器接口 (公开局域网遥测)
+        if self.path == "/api/ha/status":
+            is_fall = shared_system_state.get("state") == "FALL_CONFIRMED" or shared_system_state.get("fused_state") == "fall_confirmed"
+            is_moving = shared_system_state.get("state") == "MOVING"
+            is_presence = shared_system_state.get("state") not in ("EMPTY", "CALIBRATING")
+            is_pet = bool(shared_system_state.get("is_pet", False))
+
+            ha_payload = {
+                "fall_detected": is_fall,
+                "presence": is_presence,
+                "motion": is_moving,
+                "pet_activity": is_pet,
+                "human_state": shared_system_state.get("state", "EMPTY"),
+                "fused_state": shared_system_state.get("fused_state", "CALIBRATING"),
+                "radar_height_m": shared_system_state.get("radar_z", 0.0),
+                "respiration_bpm": shared_system_state.get("radar_bpm", 0.0),
+                "confidence": shared_system_state.get("fused_confidence", 1.0),
+                "decision_reason": shared_system_state.get("fused_reason", ""),
+            }
+            self._send_json(200, ha_payload)
+            return
+
         # --- 以下接口均需要登录 ---
         sess = self._get_session()
         if not sess:

@@ -19,15 +19,18 @@ class AlertNotifier:
         pushplus_token: Optional[str] = None,
         serverchan_key: Optional[str] = None,
         webhook_url: Optional[str] = None,
+        ha_webhook_url: Optional[str] = None,
     ):
         """
         :param pushplus_token: PushPlus (微信关注推送加公众号即可推送，免费支持多人接收)
         :param serverchan_key: Server酱 SendKey (微信推送)
         :param webhook_url: 企业微信/飞书/钉钉机器人 Webhook 地址
+        :param ha_webhook_url: Home Assistant 原生自动化 Webhook 地址 (如 http://homeassistant.local:8123/api/webhook/safehalo_fall)
         """
         self.pushplus_token = pushplus_token
         self.serverchan_key = serverchan_key
         self.webhook_url = webhook_url
+        self.ha_webhook_url = ha_webhook_url
 
     def send_fall_alarm(self, room_name: str = "老人卧室", confidence: str = "高", details: str = "") -> bool:
         """
@@ -58,6 +61,15 @@ class AlertNotifier:
         # 3. 群机器人 Webhook
         if self.webhook_url:
             success = self._send_webhook(title, content) or success
+
+        # 4. Home Assistant Webhook (联动全屋智能灯光变红、智能音箱语音播报)
+        if self.ha_webhook_url:
+            success = self._send_ha_webhook(
+                event="fall_alarm",
+                room_name=room_name,
+                confidence=confidence,
+                details=details
+            ) or success
 
         if not (self.pushplus_token or self.serverchan_key or self.webhook_url):
             logger.info(f"[Notifier 本地模拟推送] {title} - {details}")
@@ -121,6 +133,18 @@ class AlertNotifier:
             }
         }
         return self._http_post_json(self.webhook_url, payload)
+
+    def _send_ha_webhook(self, event: str, room_name: str, confidence: str, details: str) -> bool:
+        """向 Home Assistant 发送自动化触发载荷"""
+        payload = {
+            "source": "SafeHalo",
+            "event": event,
+            "room": room_name,
+            "confidence": confidence,
+            "details": details,
+            "timestamp": datetime.now().isoformat()
+        }
+        return self._http_post_json(self.ha_webhook_url, payload)
 
     def _http_post_json(self, url: str, data_dict: dict) -> bool:
         try:
