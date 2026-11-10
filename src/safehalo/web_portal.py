@@ -27,6 +27,13 @@ shared_system_state = {
     "spr": 0.18,
     "is_pet": False,
     "security_mode": "FALL_GUARD",
+    "radar_online": False,
+    "radar_protocol": "None",
+    "radar_z": 0.0,
+    "radar_bpm": 0.0,
+    "fused_state": "CALIBRATING",
+    "fused_confidence": 1.0,
+    "fused_reason": "单模 Wi-Fi CSI 运行中",
     "recent_events": [
         {"time": datetime.now().strftime("%H:%M:%S"), "text": "SafeHalo 系统启动，完成基线自适应校准"}
     ]

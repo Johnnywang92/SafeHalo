@@ -99,6 +99,9 @@ class SafeHaloLogger:
     def error(self, msg: str):
         self.logger.error(msg)
 
+    def critical(self, msg: str):
+        self.logger.critical(msg)
+
     def debug(self, msg: str):
         self.logger.debug(msg)
 

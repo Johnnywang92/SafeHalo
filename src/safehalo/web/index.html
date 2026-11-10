@@ -164,6 +164,17 @@
               <div class="metric-label">载波参与度 (SPR)</div>
               <div class="metric-val" id="metric-spr">18% (地面弱扰)</div>
             </div>
+            <div class="metric-item" style="grid-column: span 2; border: 1px solid #334155;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span class="metric-label" style="font-weight: 600; color: #38bdf8;">📡 毫米波雷达 (mmWave FMCW) 预留接口</span>
+                <span id="metric-radar-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(148,163,184,0.2); color: #94a3b8;">未启用/单模CSI</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.88rem;">
+                <span>空间高度 Z: <strong id="metric-radar-z" style="color: #fff;">0.00 m</strong></span>
+                <span>呼吸微动: <strong id="metric-radar-bpm" style="color: #fff;">0.0 bpm</strong></span>
+                <span>融合决策: <strong id="metric-fused-state" style="color: var(--success);">单模运行</strong></span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -850,6 +861,21 @@ http://100.x.x.x:8080
           document.getElementById('metric-var').innerText = d.variance.toFixed(6);
           document.getElementById('metric-jitter').innerText = d.jitter.toFixed(1) + ' ms';
           document.getElementById('metric-spr').innerText = (d.spr * 100).toFixed(0) + '% (' + (d.is_pet ? '宠物特征' : '人体特征') + ')';
+
+          // 毫米波雷达指标更新
+          const radarBadge = document.getElementById('metric-radar-badge');
+          if (d.radar_online) {
+            radarBadge.innerText = '在线 (' + (d.radar_protocol || 'auto') + ')';
+            radarBadge.style.background = 'rgba(16,185,129,0.2)';
+            radarBadge.style.color = 'var(--success)';
+            document.getElementById('metric-radar-z').innerText = (d.radar_z || 0).toFixed(2) + ' m';
+            document.getElementById('metric-radar-bpm').innerText = (d.radar_bpm || 0).toFixed(1) + ' bpm';
+            document.getElementById('metric-fused-state').innerText = d.fused_state || '双模协同';
+          } else {
+            radarBadge.innerText = '未启用/单模CSI';
+            radarBadge.style.background = 'rgba(148,163,184,0.2)';
+            radarBadge.style.color = '#94a3b8';
+          }
 
           if (d.recent_events && d.recent_events.length > 0) {
             const list = document.getElementById('event-list');
