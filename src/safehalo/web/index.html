@@ -32,7 +32,7 @@
     body { background: var(--bg-gradient); color: var(--text); padding-bottom: 70px; min-height: 100vh; -webkit-font-smoothing: antialiased; }
 
     /* 顶部清爽导航栏 */
-    header {
+    body > header {
       background: rgba(255, 255, 255, 0.85);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
@@ -45,6 +45,8 @@
       top: 0;
       z-index: 100;
       box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+      flex-wrap: wrap;
+      row-gap: 10px;
     }
     .brand { display: flex; align-items: center; gap: 14px; }
     .logo-icon {
@@ -59,21 +61,21 @@
       color: #fff;
       box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);
     }
-    .brand h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.3px; display: flex; align-items: center; gap: 8px; color: #0f172a; }
-    .brand span.tag {
-      font-size: 0.75rem;
-      color: #0284c7;
-      background: #e0f2fe;
-      border: 1px solid #bae6fd;
-      padding: 2px 10px;
-      border-radius: 20px;
-      font-weight: 600;
+    .brand h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.3px; color: #0f172a; }
+    .header-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 8px; }
+    .conn-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 0.82rem; font-weight: 600; color: #059669; }
+    .header-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 999px;
+      border: 1px solid var(--card-border); background: #ffffff;
+      font-size: 0.82rem; font-weight: 600; color: #334155;
+      cursor: pointer; font-family: inherit; transition: all 0.2s ease;
     }
-    .header-status {
-      display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: #059669;
-      background: #ecfdf5; border: 1px solid #a7f3d0;
-      padding: 6px 14px; border-radius: 20px; font-weight: 600;
-    }
+    .header-chip:hover { border-color: #94a3b8; }
+    body.family-mode > header { background: rgba(246, 244, 239, 0.85); border-bottom-color: #E8E5DD; }
+    body.family-mode .conn-chip { color: #0F6B5E; }
+    body.family-mode .pulse-dot { background: #0F6B5E; box-shadow: 0 0 8px #0F6B5E; }
+    body.family-mode .header-chip { border-color: #E8E5DD; background: rgba(255, 255, 255, 0.75); color: #3F4A47; }
     .pulse-dot { width: 8px; height: 8px; background: #059669; border-radius: 50%; box-shadow: 0 0 8px #059669; animation: pulse 2s infinite; }
     @keyframes pulse { 0% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.15); } 100% { opacity: 0.4; transform: scale(0.9); } }
     
@@ -103,6 +105,11 @@
     .container { max-width: 1120px; margin: 28px auto; padding: 0 24px; }
     .tab-content { display: none; }
     .tab-content.active { display: block; animation: fadeIn 0.25s ease; }
+    .tab-section { scroll-margin-top: 76px; }
+    .tab-section + .tab-section { margin-top: 28px; }
+    .subnav { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; }
+    .subnav-btn { border: 1px solid var(--card-border); background: #fff; color: var(--text-muted); border-radius: 999px; padding: 6px 14px; font-size: 0.82rem; cursor: pointer; transition: all 0.15s; }
+    .subnav-btn:hover { color: #0f172a; border-color: #94a3b8; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
     /* Bento 便当盒圆角浅色卡片 */
@@ -125,38 +132,6 @@
       display: flex; align-items: center; justify-content: space-between;
       color: #0f172a;
     }
-    
-    /* 核心状态 Hero 大卡片 */
-    .state-hero {
-      text-align: center;
-      padding: 38px 20px;
-      background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
-      border: 1px solid #e2e8f0;
-      position: relative;
-      overflow: hidden;
-    }
-    .state-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 32px;
-      border-radius: 40px;
-      font-size: 1.45rem;
-      font-weight: 700;
-      margin-bottom: 14px;
-      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-      box-shadow: 0 6px 18px -4px rgba(15, 23, 42, 0.08);
-    }
-    .state-desc { color: var(--text-muted); font-size: 0.95rem; max-width: 520px; margin: 0 auto; line-height: 1.6; }
-
-    /* 状态色彩（马卡龙轻量清新色系） */
-    .badge-EMPTY { background: #ecfeff; color: #0891b2; border: 1px solid #a5f3fc; }
-    .badge-STATIC { background: #f0fdf4; color: #059669; border: 1px solid #bbf7d0; }
-    .badge-MOVING { background: #fefce8; color: #ca8a04; border: 1px solid #fef08a; }
-    .badge-PET { background: #faf5ff; color: #9333ea; border: 1px solid #e9d5ff; }
-    .badge-FALL { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; animation: alert-glow 1.2s infinite alternate; }
-    .badge-CALIB { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
-    @keyframes alert-glow { from { box-shadow: 0 0 10px rgba(225,29,72,0.25); transform: scale(1); } to { box-shadow: 0 0 25px rgba(225,29,72,0.5); transform: scale(1.02); } }
 
     /* 遥测数据指标卡 */
     .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
@@ -173,12 +148,6 @@
     }
     .metric-label { font-size: 0.78rem; color: #64748b; margin-bottom: 6px; font-weight: 600; }
     .metric-val { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.5px; color: #0f172a; }
-
-    /* 事件日志列表 */
-    .event-log { max-height: 280px; overflow-y: auto; list-style: none; }
-    .event-item { font-size: 0.86rem; padding: 12px 14px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; color: #334155; }
-    .event-item:last-child { border-bottom: none; }
-    .event-time { color: var(--text-muted); font-size: 0.76rem; font-family: monospace; }
 
     /* 表单与交互控件（高质感现代输入框与纯白/渐变按钮） */
     .form-group { margin-bottom: 20px; }
@@ -312,6 +281,92 @@
       transition: all 0.15s ease;
     }
     .quick-tag:hover { border-color: #0284c7; color: #0284c7; background: #e0f2fe; }
+
+    /* ===== 家属端看板（暖白 + 深青设计语言，仅作用于看板 tab） ===== */
+    body.family-mode { background: #F6F4EF; }
+    body.family-mode .tab-btn.active { color: #0F6B5E; border-bottom-color: #0F6B5E; background: rgba(15, 107, 94, 0.06); }
+    body.family-mode .tab-btn:hover { color: #1F2A28; }
+    .fh-board { display: flex; flex-direction: column; gap: 24px; color: #1F2A28; font-size: 15px; line-height: 1.6; }
+    .fh-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+    .fh-kicker { font-size: 13px; color: #55615E; letter-spacing: 0.04em; }
+    .fh-title { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.3; }
+    .fh-head-right { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+    .fh-pill { font-size: 13px; padding: 4px 12px; border-radius: 999px; background: #ECEEED; color: #3F4A47; }
+    .fh-updated { font-size: 13px; color: #55615E; }
+    .fh-hero { border-radius: 20px; padding: 28px 32px; border: 1.5px solid; }
+    .fh-hero-inner { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; justify-content: space-between; }
+    .fh-hero-left { display: flex; align-items: center; gap: 20px; flex: 1 1 420px; min-width: 0; }
+    .fh-hero-icon { flex: none; width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    .fh-hero-kicker { font-size: 13px; opacity: 0.85; }
+    .fh-hero-title { margin: 0; font-size: 30px; line-height: 1.3; font-weight: 700; }
+    .fh-hero-sub { margin: 0; font-size: 16px; }
+    .fh-hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .fh-hero.fh-normal { background: #E3F0EC; border-color: #B9D9D0; color: #0B3D35; }
+    .fh-hero.fh-normal .fh-hero-icon { background: #0F6B5E; }
+    .fh-hero.fh-warning { background: #FBF0D9; border-color: #EACB8C; color: #4F3000; }
+    .fh-hero.fh-warning .fh-hero-icon { background: #B26B00; }
+    .fh-hero.fh-urgent { background: #FBE6E3; border-color: #E5B0AA; color: #6B1812; }
+    .fh-hero.fh-urgent .fh-hero-icon { background: #A32A22; }
+    .fh-btn { min-height: 48px; padding: 0 24px; border-radius: 12px; font-size: 16px; font-weight: 500; cursor: pointer; font-family: inherit; }
+    .fh-btn-dark { border: none; background: #1F2A28; color: #FFFFFF; }
+    .fh-btn-outline { border: 1.5px solid #1F2A28; background: transparent; color: #1F2A28; }
+    .fh-section { display: flex; flex-direction: column; gap: 12px; }
+    .fh-h2 { margin: 0; font-size: 18px; font-weight: 700; }
+    .fh-rooms { display: flex; flex-wrap: wrap; gap: 16px; }
+    .fh-room { flex: 1 1 240px; min-width: 0; background: #FFFFFF; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 10px; border: 2px solid transparent; }
+    .fh-room-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .fh-room-name { font-size: 17px; font-weight: 700; }
+    .fh-badge { font-size: 13px; font-weight: 500; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+    .fh-room-detail { font-size: 14px; color: #3F4A47; }
+    .fh-room-meta { font-size: 13px; color: #55615E; }
+    .fh-duo { display: flex; flex-wrap: wrap; gap: 16px; }
+    .fh-card { background: #FFFFFF; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 16px; min-width: 0; box-sizing: border-box; }
+    .fh-card.fh-grow { flex: 1 1 520px; }
+    .fh-card.fh-side { flex: 1 1 400px; }
+    .fh-card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .fh-card-sub { font-size: 13px; color: #55615E; }
+    .fh-hours { display: flex; align-items: flex-end; gap: 4px; height: 100px; }
+    .fh-hour-bar { flex: 1 1 0; min-width: 0; border-radius: 3px 3px 0 0; }
+    .fh-axis { display: flex; justify-content: space-between; font-size: 12px; color: #55615E; }
+    .fh-stats { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 8px; border-top: 1px solid #E8E5DD; }
+    .fh-stat { flex: 1 1 140px; display: flex; flex-direction: column; gap: 2px; }
+    .fh-stat-label { font-size: 13px; color: #55615E; }
+    .fh-stat-val { font-size: 20px; font-weight: 700; }
+    .fh-week { display: flex; align-items: flex-end; gap: 10px; height: 150px; }
+    .fh-week-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+    .fh-week-val { font-size: 12px; color: #3F4A47; }
+    .fh-week-bar { width: 100%; max-width: 44px; border-radius: 4px 4px 0 0; }
+    .fh-week-labels { display: flex; gap: 10px; }
+    .fh-week-labels span { flex: 1 1 0; text-align: center; font-size: 12px; color: #55615E; }
+    .fh-note { padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+    .fh-note-warn { background: #FBF0D9; color: #5E3A00; }
+    .fh-note-mute { background: #ECEEED; color: #3F4A47; }
+    .fh-empty { padding: 16px 0; color: #55615E; font-size: 14px; }
+    .fh-event { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 16px 0; border-top: 1px solid #E8E5DD; }
+    .fh-event-info { display: flex; flex-direction: column; gap: 4px; flex: 1 1 360px; min-width: 0; }
+    .fh-event-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .fh-level { font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; }
+    .fh-event-title { font-size: 16px; font-weight: 700; }
+    .fh-event-detail { font-size: 14px; color: #3F4A47; }
+    .fh-event-time { font-size: 13px; color: #55615E; }
+    .fh-event-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+    .fh-fb { min-height: 44px; padding: 0 18px; border-radius: 10px; font-size: 15px; font-weight: 500; cursor: pointer; border: 1.5px solid #C9C5BA; background: #FFFFFF; color: #1F2A28; font-family: inherit; }
+    .fh-fb:hover { border-color: #1F2A28; }
+    .fh-fb-done { font-size: 14px; color: #55615E; }
+    .fh-table-wrap { overflow-x: auto; }
+    .fh-table { width: 100%; min-width: 440px; border-collapse: collapse; font-size: 14px; }
+    .fh-table th { text-align: left; color: #55615E; font-size: 13px; font-weight: 500; padding: 10px 8px; }
+    .fh-table td { padding: 12px 8px; border-top: 1px solid #E8E5DD; }
+    .fh-chain { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .fh-chain li { display: flex; align-items: center; gap: 12px; }
+    .fh-chain-n { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #0F6B5E; color: #FFFFFF; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+    .fh-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; font-size: 13px; color: #55615E; }
+    .fh-tech { background: #FFFFFF; border-radius: 16px; padding: 16px 24px; font-size: 14px; }
+    .fh-tech summary { cursor: pointer; color: #55615E; font-size: 13px; }
+    .fh-tech .metric-item { background: #F6F4EF; border-color: #E8E5DD; }
+    .fh-tech .metric-item:hover { background: #F6F4EF; border-color: #E8E5DD; }
+    .fh-tech .metric-label { color: #55615E; }
+    .fh-tech .metric-val { color: #1F2A28; }
   </style>
 </head>
 <body>
@@ -319,564 +374,610 @@
   <header>
     <div class="brand">
       <div class="logo-icon">S</div>
-      <div>
-        <h1>SafeHalo <span class="tag">WiFi CSI 跌倒守护</span></h1>
-      </div>
+      <h1>SafeHalo</h1>
     </div>
-    <div style="display: flex; align-items: center; gap: 14px;">
-      <div class="header-status">
-        <div class="pulse-dot"></div>
-        <span id="conn-status">感知在线</span>
-      </div>
-      <div id="room-placement-badge" style="display: flex; align-items: center; gap: 8px; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.3); padding: 6px 14px; border-radius: 24px; font-size: 0.84rem; cursor: pointer; transition: all 0.2s;" onclick="openPlacementModal()" title="点击切换守护场景与生活习惯">
-        <span>🏡</span>
-        <span id="header-room-name" style="font-weight: 600; color: #38bdf8;">客厅 · 家里长辈</span>
-        <span style="font-size: 0.72rem; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 10px;">向导</span>
-      </div>
-      <div id="user-profile-badge" style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.05); padding: 6px 14px; border-radius: 24px; font-size: 0.84rem; border: 1px solid var(--card-border);">
-        <span id="header-user-icon">👤</span>
-        <span id="header-username" style="font-weight: 600;">未登录</span>
-        <span id="header-role" style="color: var(--text-muted); font-size: 0.75rem;">(访客)</span>
-      </div>
-      <button class="btn btn-secondary" id="auth-btn" style="padding: 6px 16px; font-size: 0.82rem;" onclick="handleAuthButtonClick()">登录</button>
+    <div class="header-tools">
+      <span class="conn-chip" title="后台连接状态">
+        <span class="pulse-dot"></span>
+        <span id="conn-status">在线</span>
+      </span>
+      <button type="button" class="header-chip" id="room-placement-badge" onclick="openPlacementModal()" title="点击配置守护场景与生活习惯">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg>
+        <span id="header-room-name">客厅</span>
+      </button>
+      <button type="button" class="header-chip" id="auth-btn" onclick="handleAuthButtonClick()" title="登录 / 退出登录">
+        <span id="header-username">登录</span>
+      </button>
     </div>
   </header>
 
   <nav class="nav-tabs">
-    <button class="tab-btn" onclick="switchTab('product')">✨ 产品介绍与原理</button>
-    <button class="tab-btn active" onclick="switchTab('dashboard')">实时大盘</button>
-    <button class="tab-btn" onclick="switchTab('remote')">🌐 远程访问与穿透</button>
-    <button class="tab-btn" onclick="switchTab('placement')">📐 摆放与安装规范</button>
-    <button class="tab-btn" onclick="switchTab('routers')">📡 支持路由器清单</button>
-    <button class="tab-btn" onclick="switchTab('settings')">⚙️ 参数与手机通知配置</button>
-    <button class="tab-btn" onclick="switchTab('logs')">📋 系统与审计日志</button>
-    <button class="tab-btn" id="tab-btn-users" onclick="switchTab('users')" style="display: none;">👤 成员与用户管理</button>
+    <button class="tab-btn active" data-tab="dashboard" onclick="switchTab('dashboard')">家属看板</button>
+    <button class="tab-btn" data-tab="guide" onclick="switchTab('guide')">产品指南</button>
+    <button class="tab-btn" data-tab="config" onclick="switchTab('config')">系统配置</button>
+    <button class="tab-btn" data-tab="admin" onclick="switchTab('admin')">系统管理</button>
   </nav>
 
   <div class="container">
 
-    <!-- TAB 0: 产品介绍与原理 -->
-    <div id="tab-product" class="tab-content">
-      <!-- 极光 Hero 横幅 -->
-      <div class="card" style="background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 50%, #f5f3ff 100%); border: 1px solid #bfdbfe; margin-bottom: 24px; padding: 36px 32px; text-align: center; position: relative; overflow: hidden;">
-        <div style="display: inline-block; background: #dbeafe; color: #1d4ed8; padding: 4px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 700; margin-bottom: 12px;">
-          🚀 无感隐形居家守护 · 新一代 Wi-Fi CSI 射频雷达技术
-        </div>
-        <h2 style="font-size: 2rem; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; margin-bottom: 12px;">
-          不用摄像头，把家中 Wi-Fi 变成全屋隐形守护光环
-        </h2>
-        <p style="color: #475569; font-size: 1.05rem; max-width: 720px; margin: 0 auto 24px auto; line-height: 1.6;">
-          SafeHalo 利用普通家用路由器发射的 2.4GHz 无线电电波微动，全屋<strong>零摄像头、不拍任何隐私画面、无需老人佩戴任何手环</strong>，实现穿墙毫米级跌倒检测与日常作息异常预警。
-        </p>
-        <div style="display: flex; justify-content: center; gap: 14px; flex-wrap: wrap;">
-          <button class="btn" style="padding: 12px 24px; font-size: 0.95rem;" onclick="openPlacementModal()">🧭 开启 3 步安心守护向导</button>
-          <button class="btn btn-secondary" style="padding: 12px 24px; font-size: 0.95rem;" onclick="switchTab('dashboard')">进入实时大盘 ➔</button>
-        </div>
-      </div>
-
-      <!-- 四大核心技术优势 (Bento Grid) -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; margin-bottom: 26px;">
-        <div class="card" style="border-top: 4px solid #0284c7;">
-          <div style="font-size: 2rem; margin-bottom: 12px;">🔒</div>
-          <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">100% 隐私零冒犯</h4>
-          <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
-            彻底摒弃令人反感的摄像头与录音麦克风。即便在卫浴淋浴、主卧睡眠等最私密的极高危场景，也能安心全天候守护，呵护长辈体面与尊严。
-          </p>
-        </div>
-
-        <div class="card" style="border-top: 4px solid #10b981;">
-          <div style="font-size: 2rem; margin-bottom: 12px;">⌚</div>
-          <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">零穿戴、零充电负担</h4>
-          <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
-            老人经常忘记佩戴手环或忘记充电。SafeHalo 就像空气中的雷达，只要人在房间走动、坐卧或起夜，电波扰动即时感知，真正实现“用户零操作”。
-          </p>
-        </div>
-
-        <div class="card" style="border-top: 4px solid #8b5cf6;">
-          <div style="font-size: 2rem; margin-bottom: 12px;">⚡</div>
-          <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">四段式闭环防误扰</h4>
-          <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
-            严格遵循「冲击 ➔ 地面静止 ➔ 本地轻柔质询 ➔ 超时确诊报警」闭环。坐地穿鞋、掉枕头等情况在本地轻声询问、挥手即消，绝不无端惊扰子女。
-          </p>
-        </div>
-
-        <div class="card" style="border-top: 4px solid #f59e0b;">
-          <div style="font-size: 2rem; margin-bottom: 12px;">💡</div>
-          <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">旧物焕新·百元级极低成本</h4>
-          <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
-            无需更换昂贵专用设备，家里的旧 TP-Link、小米等任意 2.4G 路由器均可作为发射源，搭配仅 30 余元的 ESP32-S3 探针即可满血运行。
-          </p>
-        </div>
-      </div>
-
-      <!-- 技术原理可视化工作流 -->
-      <div class="card doc-section" style="margin-bottom: 24px;">
-        <h3>🔬 物理原理：Wi-Fi CSI 是如何“看见”动作的？</h3>
-        <p>
-          当路由器发射 Wi-Fi 信号时，电磁波在室内各墙面、天花板和家具之间反弹，形成复杂的<strong>空间多径微电波场（菲涅尔区）</strong>。
-          SafeHalo 提取底层网卡芯片物理层的 <strong>CSI（信道状态信息 Channel State Information）</strong>，测量多达 52 个载波的振幅与相位变化：
-        </p>
-
-        <div class="diagram-box">
-┌─────────────────┐       Wi-Fi 无线电波散射微扰动       ┌──────────────────┐
-│  家用旧无线路由器 │  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~>  │ ESP32-S3 接收节点 │
-│ (2.4GHz 发射节点) │       (人体走动 / 呼吸 / 摔倒)       │ (物理层 CSI 解调) │
-└─────────────────┘                                      └────────┬─────────┘
-                                                                  │ 30Hz ~ 100Hz 载波流
-                                                                  ▼
-┌───────────────────────────────────────────────────────────────────────────┐
-│                     SafeHalo 核心感知与生理诊断引擎                        │
-├──────────────────────────┬─────────────────────────┬──────────────────────┤
-│ 1. 邻居隔离与多径滤波     │ 2. 空间动态重心解调     │ 3. 地面胸腔微动扫描  │
-│ (Hampel 去噪 + 宠物过滤) │ (剧烈冲击尖峰方差检测)  │ (100Hz 激振探测呼吸) │
-└──────────────────────────┴─────────────┬───────────┴──────────────────────┘
-                                         │ 四段式闭环确认
-                                         ▼
-┌───────────────────────────────────────────────────────────────────────────┐
-│               多端触达：本地轻柔质询 / 手机微信 / 微信小程序卡片          │
-└───────────────────────────────────────────────────────────────────────────┘
-        </div>
-
-        <h3 style="margin-top: 24px;">🎯 典型应用守护场景</h3>
-        <table class="table">
-          <tr>
-            <th>应用场景</th>
-            <th>痛点与传统方案局限</th>
-            <th>SafeHalo 守护方案</th>
-          </tr>
-          <tr>
-            <td><strong>独居高龄长辈看护</strong></td>
-            <td>长辈排斥摄像头装在家中；常忘记戴手环</td>
-            <td>无感射频感知，起居规律自画像；早起异常未起时微信温和提醒</td>
-          </tr>
-          <tr>
-            <td><strong>卫浴湿滑防摔高危区</strong></td>
-            <td>水汽水雾阻挡镜头，隐私绝对禁区</td>
-            <td>Wi-Fi 穿透木门/玻璃门；自带水流扰动抗噪阻尼，跌倒 3 秒快速预警</td>
-          </tr>
-          <tr>
-            <td><strong>全家外出·隐形防盗</strong></td>
-            <td>传统门磁防君子不防翻窗；红外容易被宠物误触</td>
-            <td>一键切换「离家防盗模式」，多载波方差灵敏捕捉全屋异动破门</td>
-          </tr>
-        </table>
-      </div>
-    </div>
-
-    <!-- TAB 1: 实时大盘 -->
+    <!-- TAB: 家属看板 -->
     <div id="tab-dashboard" class="tab-content active">
-      <div class="card state-hero" style="margin-bottom: 20px;">
-        <div id="hero-badge" class="state-badge badge-EMPTY">
-          <span id="hero-icon">🏠</span>
-          <span id="hero-text">空房间 (无人)</span>
-        </div>
-        <p id="hero-desc" class="state-desc">当前空间环境稳定，无人员或多径扰动。系统处于待命守护状态。</p>
-      </div>
+      <div class="fh-board">
 
-      <div class="grid">
-        <div class="card">
-          <div class="card-title">
-            <span>实时信号遥测指标</span>
-            <span style="font-size: 0.8rem; color: var(--text-muted);">每 200ms 刷新</span>
+        <header class="fh-head">
+          <div>
+            <div class="fh-kicker">SafeHalo 家属端</div>
+            <h1 class="fh-title" id="fh-home-title">我的家</h1>
           </div>
-          <div class="metric-grid">
+          <div class="fh-head-right">
+            <span class="fh-pill" id="fh-data-pill">连接中…</span>
+            <span class="fh-updated" id="fh-updated">更新于 --:--</span>
+          </div>
+        </header>
+
+        <section class="fh-hero fh-normal" id="fh-hero">
+          <div class="fh-hero-inner">
+            <div class="fh-hero-left">
+              <div class="fh-hero-icon" id="fh-hero-icon"></div>
+              <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+                <div class="fh-hero-kicker" id="fh-hero-kicker">等待更新</div>
+                <h2 class="fh-hero-title" id="fh-hero-title">正在连接守护系统…</h2>
+                <p class="fh-hero-sub" id="fh-hero-sub">正在获取家中最新情况。</p>
+              </div>
+            </div>
+            <div class="fh-hero-actions" id="fh-hero-actions" style="display: none">
+              <button type="button" class="fh-btn fh-btn-dark" onclick="familyAcknowledgeSafe()">确认平安</button>
+              <button type="button" class="fh-btn fh-btn-outline" onclick="familyMarkLatestFalse()">标记误报</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="fh-section">
+          <h2 class="fh-h2">各房间现在的情况</h2>
+          <div class="fh-rooms" id="fh-rooms"></div>
+        </section>
+
+        <section class="fh-duo">
+          <div class="fh-card fh-grow">
+            <div class="fh-card-head">
+              <h2 class="fh-h2">今天的活动</h2>
+              <span class="fh-card-sub">每小时活动频次</span>
+            </div>
+            <div class="fh-hours" id="fh-hours"></div>
+            <div class="fh-axis"><span>0 点</span><span>6 点</span><span>12 点</span><span>18 点</span><span>24 点</span></div>
+            <div class="fh-stats">
+              <div class="fh-stat"><span class="fh-stat-label">昨夜起夜</span><span class="fh-stat-val" id="fh-night">--</span></div>
+              <div class="fh-stat"><span class="fh-stat-label">就寝 / 起床</span><span class="fh-stat-val" id="fh-sleep">--</span></div>
+              <div class="fh-stat"><span class="fh-stat-label">今日活动时长</span><span class="fh-stat-val" id="fh-active">--</span></div>
+            </div>
+          </div>
+          <div class="fh-card fh-side">
+            <div class="fh-card-head">
+              <h2 class="fh-h2">近 7 天活动量</h2>
+              <span class="fh-card-sub">全屋活动分钟数</span>
+            </div>
+            <div class="fh-week" id="fh-week"></div>
+            <div class="fh-week-labels" id="fh-week-labels"></div>
+            <div class="fh-note fh-note-mute" id="fh-week-note" style="display: none"></div>
+          </div>
+        </section>
+
+        <section class="fh-card">
+          <div class="fh-card-head">
+            <h2 class="fh-h2">最近的提醒</h2>
+            <span class="fh-card-sub">您的标记会帮助系统减少误报</span>
+          </div>
+          <div id="fh-events"><div class="fh-empty">加载中…</div></div>
+        </section>
+
+        <section class="fh-duo">
+          <div class="fh-card fh-grow" style="gap: 8px">
+            <h2 class="fh-h2" style="margin-bottom: 4px">设备状态</h2>
+            <div style="font-size: 14px; color: #3F4A47">节点心跳中断时会在这里显示离线，请留意电源与网络。</div>
+            <div class="fh-table-wrap">
+              <table class="fh-table">
+                <thead>
+                  <tr><th>位置</th><th>状态</th><th>最近心跳</th><th>累计数据包</th></tr>
+                </thead>
+                <tbody id="fh-devices"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="fh-card fh-side" style="gap: 14px">
+            <h2 class="fh-h2">紧急时怎么通知</h2>
+            <div style="font-size: 14px; color: #3F4A47">检测到紧急事件时，已配置的渠道会同时发送通知，不会只靠一个渠道。</div>
+            <ol class="fh-chain">
+              <li><span class="fh-chain-n">1</span><span style="font-size: 15px">微信服务通知（PushPlus / Server酱）</span></li>
+              <li><span class="fh-chain-n">2</span><span style="font-size: 15px">家庭群机器人（企业微信 / 飞书 / 钉钉）</span></li>
+              <li><span class="fh-chain-n">3</span><span style="font-size: 15px">全屋智能联动（Home Assistant 灯光与音箱）</span></li>
+              <li><span class="fh-chain-n">4</span><span style="font-size: 15px">短信 / 语音外呼（需配置外呼网关）</span></li>
+            </ol>
+            <div class="fh-note fh-note-mute">未配置的渠道会自动跳过，建议至少配置一个微信渠道。</div>
+          </div>
+        </section>
+
+        <details class="fh-tech">
+          <summary>技术遥测详情（安装与维护用）</summary>
+          <div class="metric-grid" style="margin-top: 14px">
             <div class="metric-item">
               <div class="metric-label">路由器 CSI 采样率</div>
-              <div class="metric-val" id="metric-rate" style="color: var(--cyan);">30.0 Hz</div>
+              <div class="metric-val" id="metric-rate">--</div>
             </div>
             <div class="metric-item">
               <div class="metric-label">多载波方差 (MVS)</div>
-              <div class="metric-val" id="metric-var">0.00012</div>
+              <div class="metric-val" id="metric-var">--</div>
             </div>
             <div class="metric-item">
               <div class="metric-label">发包时延抖动 (Jitter)</div>
-              <div class="metric-val" id="metric-jitter" style="color: var(--success);">8.2 ms</div>
+              <div class="metric-val" id="metric-jitter">--</div>
             </div>
             <div class="metric-item">
               <div class="metric-label">载波参与度 (SPR)</div>
-              <div class="metric-val" id="metric-spr">18% (地面弱扰)</div>
+              <div class="metric-val" id="metric-spr">--</div>
             </div>
-            <div class="metric-item" style="grid-column: span 2; border: 1px solid rgba(56, 189, 248, 0.25); background: rgba(56, 189, 248, 0.04);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span class="metric-label" style="font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
-                  <span>📡 当前联结路由器</span>
-                  <span style="font-size: 0.7rem; color: #34d399; background: rgba(16,185,129,0.15); padding: 1px 6px; border-radius: 8px;">已自动锁定家网</span>
-                </span>
-                <span id="metric-neighbor-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; background: rgba(16,185,129,0.2); color: var(--success); font-weight: 600;">纯净度 100%</span>
-              </div>
-              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 0.84rem;">
-                <div>主路由 MAC: <strong id="metric-router-mac-disp" style="color: #fff; font-family: monospace;">c0:06:c3:11:22:33</strong></div>
-                <div>频段/信道: <strong style="color: #38bdf8;">2.4G (HT20)</strong></div>
-                <div>邻区隔离: <strong id="metric-neighbor-dropped" style="color: #34d399;">0 包</strong></div>
+            <div class="metric-item" style="grid-column: span 2">
+              <div class="metric-label">当前联结路由器 <span id="metric-neighbor-badge" class="fh-badge" style="background: #ECEEED; color: #4A5552">--</span></div>
+              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px; color: #3F4A47; margin-top: 6px">
+                <div>主路由 MAC: <strong id="metric-router-mac-disp" style="font-family: monospace">--</strong></div>
+                <div>邻区隔离: <strong id="metric-neighbor-dropped">--</strong></div>
+                <div>邻区节点: <strong id="metric-neighbor-nodes">--</strong></div>
+                <div>信道评估: <strong id="metric-neighbor-advice">--</strong></div>
               </div>
             </div>
-            <div class="metric-item" style="grid-column: span 2; border: 1px solid rgba(139, 92, 246, 0.25); background: rgba(139, 92, 246, 0.04);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span class="metric-label" style="font-weight: 600; color: #c084fc;">✨ 毫米波微动雷达扩展接口</span>
-                <span id="metric-radar-badge" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; background: rgba(148,163,184,0.15); color: #94a3b8;">单模 Wi-Fi CSI 运行中</span>
-              </div>
-              <div style="display: flex; justify-content: space-between; font-size: 0.86rem;">
-                <span>高度 Z: <strong id="metric-radar-z" style="color: #fff;">0.00 m</strong></span>
-                <span>呼吸微动: <strong id="metric-radar-bpm" style="color: #fff;">0.0 bpm</strong></span>
-                <span>决策融合: <strong id="metric-fused-state" style="color: var(--success);">单模稳定</strong></span>
+            <div class="metric-item" style="grid-column: span 2">
+              <div class="metric-label">毫米波微动雷达扩展 <span id="metric-radar-badge" class="fh-badge" style="background: #ECEEED; color: #4A5552">--</span></div>
+              <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 13px; color: #3F4A47; margin-top: 6px">
+                <div>高度 Z: <strong id="metric-radar-z">--</strong></div>
+                <div>呼吸微动: <strong id="metric-radar-bpm">--</strong></div>
+                <div>决策融合: <strong id="metric-fused-state">--</strong></div>
               </div>
             </div>
+          </div>
+        </details>
+
+        <footer class="fh-foot">
+          <div>本系统只记录事件和活动统计，没有摄像头，也不录音、不保存画面。</div>
+          <div>它是辅助提醒，不能替代一键求助和日常探望；漏报和误报都有可能发生。</div>
+        </footer>
+
+      </div>
+    </div>
+
+    <!-- TAB: 产品指南（原理 / 摆放 / 路由器） -->
+    <div id="tab-guide" class="tab-content">
+
+      <div class="subnav">
+        <button type="button" class="subnav-btn" onclick="jumpSection('sec-product')" >产品原理</button>
+        <button type="button" class="subnav-btn" onclick="jumpSection('sec-placement')" >摆放安装</button>
+        <button type="button" class="subnav-btn" onclick="jumpSection('sec-routers')" >支持路由器</button>
+      </div>
+
+      <div id="sec-product" class="tab-section">
+        <!-- 极光 Hero 横幅 -->
+        <div class="card" style="background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 50%, #f5f3ff 100%); border: 1px solid #bfdbfe; margin-bottom: 24px; padding: 36px 32px; text-align: center; position: relative; overflow: hidden;">
+          <div style="display: inline-block; background: #dbeafe; color: #1d4ed8; padding: 4px 14px; border-radius: 20px; font-size: 0.82rem; font-weight: 700; margin-bottom: 12px;">
+            🚀 无感隐形居家守护 · 新一代 Wi-Fi CSI 射频雷达技术
+          </div>
+          <h2 style="font-size: 2rem; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; margin-bottom: 12px;">
+            不用摄像头，把家中 Wi-Fi 变成全屋隐形守护光环
+          </h2>
+          <p style="color: #475569; font-size: 1.05rem; max-width: 720px; margin: 0 auto 24px auto; line-height: 1.6;">
+            SafeHalo 利用普通家用路由器发射的 2.4GHz 无线电电波微动，全屋<strong>零摄像头、不拍任何隐私画面、无需老人佩戴任何手环</strong>，实现穿墙毫米级跌倒检测与日常作息异常预警。
+          </p>
+          <div style="display: flex; justify-content: center; gap: 14px; flex-wrap: wrap;">
+            <button class="btn" style="padding: 12px 24px; font-size: 0.95rem;" onclick="openPlacementModal()" title="3 步完成摆放与生活习惯配置">开启守护向导</button>
+            <button class="btn btn-secondary" style="padding: 12px 24px; font-size: 0.95rem;" onclick="switchTab('dashboard')">进入家属看板</button>
+          </div>
+        </div>
+
+        <!-- 四大核心技术优势 (Bento Grid) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; margin-bottom: 26px;">
+          <div class="card" style="border-top: 4px solid #0284c7;">
+            <div style="font-size: 2rem; margin-bottom: 12px;">🔒</div>
+            <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">100% 隐私零冒犯</h4>
+            <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
+              彻底摒弃令人反感的摄像头与录音麦克风。即便在卫浴淋浴、主卧睡眠等最私密的极高危场景，也能安心全天候守护，呵护长辈体面与尊严。
+            </p>
+          </div>
+
+          <div class="card" style="border-top: 4px solid #10b981;">
+            <div style="font-size: 2rem; margin-bottom: 12px;">⌚</div>
+            <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">零穿戴、零充电负担</h4>
+            <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
+              老人经常忘记佩戴手环或忘记充电。SafeHalo 就像空气中的雷达，只要人在房间走动、坐卧或起夜，电波扰动即时感知，真正实现“用户零操作”。
+            </p>
+          </div>
+
+          <div class="card" style="border-top: 4px solid #8b5cf6;">
+            <div style="font-size: 2rem; margin-bottom: 12px;">⚡</div>
+            <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">四段式闭环防误扰</h4>
+            <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
+              严格遵循「冲击 ➔ 地面静止 ➔ 本地轻柔质询 ➔ 超时确诊报警」闭环。坐地穿鞋、掉枕头等情况在本地轻声询问、挥手即消，绝不无端惊扰子女。
+            </p>
+          </div>
+
+          <div class="card" style="border-top: 4px solid #f59e0b;">
+            <div style="font-size: 2rem; margin-bottom: 12px;">💡</div>
+            <h4 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">旧物焕新·百元级极低成本</h4>
+            <p style="color: #64748b; font-size: 0.9rem; line-height: 1.6;">
+              无需更换昂贵专用设备，家里的旧 TP-Link、小米等任意 2.4G 路由器均可作为发射源，搭配仅 30 余元的 ESP32-S3 探针即可满血运行。
+            </p>
+          </div>
+        </div>
+
+        <!-- 技术原理可视化工作流 -->
+        <div class="card doc-section" style="margin-bottom: 24px;">
+          <h3>🔬 物理原理：Wi-Fi CSI 是如何“看见”动作的？</h3>
+          <p>
+            当路由器发射 Wi-Fi 信号时，电磁波在室内各墙面、天花板和家具之间反弹，形成复杂的<strong>空间多径微电波场（菲涅尔区）</strong>。
+            SafeHalo 提取底层网卡芯片物理层的 <strong>CSI（信道状态信息 Channel State Information）</strong>，测量多达 52 个载波的振幅与相位变化：
+          </p>
+
+          <div class="diagram-box">
+  ┌─────────────────┐       Wi-Fi 无线电波散射微扰动       ┌──────────────────┐
+  │  家用旧无线路由器 │  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~>  │ ESP32-S3 接收节点 │
+  │ (2.4GHz 发射节点) │       (人体走动 / 呼吸 / 摔倒)       │ (物理层 CSI 解调) │
+  └─────────────────┘                                      └────────┬─────────┘
+                                                                    │ 30Hz ~ 100Hz 载波流
+                                                                    ▼
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │                     SafeHalo 核心感知与生理诊断引擎                        │
+  ├──────────────────────────┬─────────────────────────┬──────────────────────┤
+  │ 1. 邻居隔离与多径滤波     │ 2. 空间动态重心解调     │ 3. 地面胸腔微动扫描  │
+  │ (Hampel 去噪 + 宠物过滤) │ (剧烈冲击尖峰方差检测)  │ (100Hz 激振探测呼吸) │
+  └──────────────────────────┴─────────────┬───────────┴──────────────────────┘
+                                           │ 四段式闭环确认
+                                           ▼
+  ┌───────────────────────────────────────────────────────────────────────────┐
+  │               多端触达：本地轻柔质询 / 手机微信 / 微信小程序卡片          │
+  └───────────────────────────────────────────────────────────────────────────┘
+          </div>
+
+          <h3 style="margin-top: 24px;">🎯 典型应用守护场景</h3>
+          <table class="table">
+            <tr>
+              <th>应用场景</th>
+              <th>痛点与传统方案局限</th>
+              <th>SafeHalo 守护方案</th>
+            </tr>
+            <tr>
+              <td><strong>独居高龄长辈看护</strong></td>
+              <td>长辈排斥摄像头装在家中；常忘记戴手环</td>
+              <td>无感射频感知，起居规律自画像；早起异常未起时微信温和提醒</td>
+            </tr>
+            <tr>
+              <td><strong>卫浴湿滑防摔高危区</strong></td>
+              <td>水汽水雾阻挡镜头，隐私绝对禁区</td>
+              <td>Wi-Fi 穿透木门/玻璃门；自带水流扰动抗噪阻尼，跌倒 3 秒快速预警</td>
+            </tr>
+            <tr>
+              <td><strong>全家外出·隐形防盗</strong></td>
+              <td>传统门磁防君子不防翻窗；红外容易被宠物误触</td>
+              <td>一键切换「离家防盗模式」，多载波方差灵敏捕捉全屋异动破门</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <div id="sec-placement" class="tab-section">
+        <div class="card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1px solid #bae6fd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; padding: 20px 26px;">
+          <div>
+            <div style="font-size: 1.1rem; font-weight: 700; color: #0284c7; margin-bottom: 4px;">📍 当前路由器已适配场景: <span id="current-room-text">客厅</span></div>
+            <div style="font-size: 0.85rem; color: #475569;" id="current-room-desc">算法已自适应优化开阔多径、大空间动能与宠物过滤</div>
+          </div>
+          <button class="btn" onclick="openPlacementModal()" style="white-space: nowrap;" title="重新配置摆放场景与调优算法">重新配置摆放</button>
+        </div>
+
+        <div class="card doc-section">
+          <h3>📐 路由器与接收探针的“黄金摆放法则”</h3>
+          <p>Wi-Fi 跌倒检测的精度 70% 取决于摆放位置。无线电在发射端（路由器）与接收端（ESP32-S3）之间会形成橄榄球状的<strong>第一菲涅尔区 (Fresnel Zone)</strong>，目标是让人体活动穿过该区域的主能量束。</p>
+
+          <div class="diagram-box">
+               [旧路由器 (AP)]                                  [ESP32-S3 接收节点]
+              (高 1.2m~1.4m)                                   (高 1.2m~1.4m)
+                    \       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~       /
+                     \    ~      第一菲涅尔主能量束       ~   /
+                      \ ~    (人体胸腰高度，覆盖大部分动作)    ~ /
+  ==================== \~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~/ ====================
+  地面 (0~0.5m)          [ 🐾 地面宠物跑动仅擦碰外边缘，被算法完全过滤 ]
+          </div>
+
+          <h3>1. 高度要求：1.2米 ～ 1.5米（最关键）</h3>
+          <ul>
+            <li><strong>正确做法</strong>：将路由器和 ESP32 放置在桌面、书架、床头柜或中位墙插上（与成年人胸腹高度齐平）。</li>
+            <li><strong>为什么</strong>：高位部署不仅能捕捉人体重心骤降（摔倒），更让地面上 0.5 米以下的猫狗活动只处于能量束死角，物理隔绝宠物误报。</li>
+          </ul>
+
+          <h3>2. 典型房间布局推荐</h3>
+          <table class="table">
+            <tr>
+              <th>监测场景</th>
+              <th>路由器与探针建议位置</th>
+              <th>核心防范目标</th>
+            </tr>
+            <tr>
+              <td><strong>老人主卧</strong></td>
+              <td>路由器放床头柜，ESP32 放置在对面电视柜或房门对角线（直线距离 3~5米）</td>
+              <td>下床跌倒、床边滑落、起夜步态异常</td>
+            </tr>
+            <tr>
+              <td><strong>高危卫生间</strong></td>
+              <td>ESP32 安装在马桶正前方墙壁（1.3米防水盒），路由器置于卫生间门外</td>
+              <td>洗澡滑倒、如厕起身后眩晕倒地（Wi-Fi穿透木门/玻璃门）</td>
+            </tr>
+            <tr>
+              <td><strong>客厅大开间</strong></td>
+              <td>两端对角线放置，视距尽量跨越主要走道</td>
+              <td>行走摔倒、离家防盗全屋无死角覆盖</td>
+            </tr>
+          </table>
+
+          <h3>3. 严禁放置的“干扰黑名单”</h3>
+          <ul>
+            <li><strong>避开大型金属体与镜子</strong>：不要紧挨双开门大冰箱、大型落地全身镜（金属和水银镀层会全反射电磁波）。</li>
+            <li><strong>避开鱼缸与水体</strong>：2.4GHz 无线电极易被水分子强烈吸收。</li>
+            <li><strong>避开运转中的微波炉</strong>：微波炉工作在 2.45GHz，会造成信道噪声瞬时冲顶。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="sec-routers" class="tab-section">
+        <div class="card doc-section">
+          <h3>📡 什么样的旧路由器可以使用？</h3>
+          <p>SafeHalo 支持两种硬件组网形式，兼容市面上几乎所有旧路由器：</p>
+
+          <table class="table">
+            <tr>
+              <th>接入形态</th>
+              <th>适用旧路由器</th>
+              <th>硬件成本</th>
+              <th>特点</th>
+            </tr>
+            <tr>
+              <td><strong>形态 A：标准推荐（路由器 + ESP32 探针）</strong></td>
+              <td><strong>任何品牌的旧路由器</strong><br>(如小米、华为、TP-Link、水星、腾达、华硕、网件等，只要有 2.4GHz)</td>
+              <td>约 35 元 (1 块 ESP32-S3)</td>
+              <td><strong>零门槛</strong>，无需拆机刷固件。路由器只需固定 2.4GHz 信道 20MHz，ESP32-S3 负责精准测 CSI。</td>
+            </tr>
+            <tr>
+              <td><strong>形态 B：纯路由器自采自算（极客进阶）</strong></td>
+              <td><strong>Qualcomm Atheros 芯片路由器</strong><br>(可刷 OpenWrt 并打 Atheros CSI 补丁)</td>
+              <td>0 元</td>
+              <td>利用路由器自身 Wi-Fi 芯片提取 CSI，难度极高，需要刷写改动内核的 OpenWrt。</td>
+            </tr>
+          </table>
+
+          <h3 style="margin-top: 20px;">形态 B 完美支持的经典旧路由器型号库</h3>
+          <ul>
+            <li><strong>TP-Link</strong>: TL-WDR4300, TL-WDR3600, TL-WR703N, TL-WR841N v8/v9, TL-WDR7500 v2</li>
+            <li><strong>D-Link</strong>: DIR-825 B1, DIR-505</li>
+            <li><strong>水星 / 迅捷</strong>: MW4530R (AR9344)</li>
+            <li><strong>网件 Netgear</strong>: WNDR3700 v4, WNDR3800</li>
+          </ul>
+
+          <h3 style="margin-top: 20px;">路由器后台关键 Wi-Fi 设置（必做）</h3>
+          <ul>
+            <li><strong>Wi-Fi 频段</strong>: 仅开启 <strong>2.4GHz</strong>（5GHz 穿透差且多径波长过小）。</li>
+            <li><strong>固定信道</strong>: 务必从“自动跳频”改为<strong>固定信道 1、6 或 11</strong>。</li>
+            <li><strong>固定频宽</strong>: 设置为 <strong>20MHz</strong> (HT20)，禁止 40MHz 频宽捆绑。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: 系统配置（参数通知 / 远程访问） -->
+    <div id="tab-config" class="tab-content">
+
+      <div class="subnav">
+        <button type="button" class="subnav-btn" onclick="jumpSection('sec-settings')" >参数与通知</button>
+        <button type="button" class="subnav-btn" onclick="jumpSection('sec-remote')" >远程访问</button>
+      </div>
+
+      <div id="sec-settings" class="tab-section">
+        <div class="card" style="margin-bottom: 20px;">
+          <div class="card-title">🛡️ 守护模式快速切换</div>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button class="btn" onclick="setSecurityMode('FALL_GUARD')" title="白天正常生活 / 老人独居">跌倒守护</button>
+            <button class="btn btn-secondary" onclick="setSecurityMode('AWAY_SECURITY')" title="全家外出 / 非法闯入告警">离家防盗</button>
+            <button class="btn btn-secondary" onclick="setSecurityMode('NIGHT_GUARD')" title="客厅防盗 + 卧室跌倒">夜间巡航</button>
+            <button class="btn" style="background: var(--purple); margin-top: 4px;" onclick="triggerInspect()" title="主动激振微体征扫描">定向深度排查</button>
           </div>
         </div>
 
         <div class="card">
+          <div class="card-title">📱 微信与手机短信推送设置</div>
+          <div class="form-group">
+            <label>PushPlus (微信推送加) Token</label>
+            <input type="text" id="cfg-pushplus" placeholder="例如: 9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c">
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">关注微信公众号「pushplus推送加」即可免费获取 Token，微信即时弹窗。</p>
+          </div>
+          <div class="form-group">
+            <label>Server酱 SendKey (可选)</label>
+            <input type="text" id="cfg-serverchan" placeholder="例如: SCT123456Txxxxxx">
+          </div>
+          <div class="form-group">
+            <label>家庭群 / 养老机构 Webhook 地址 (支持企业微信/飞书/钉钉)</label>
+            <input type="text" id="cfg-webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
+          </div>
+          <div style="display: flex; gap: 12px;">
+            <button class="btn" onclick="saveConfig()">保存配置</button>
+            <button class="btn btn-secondary" onclick="sendTestPush()" title="发送一条测试告警到手机微信">发送测试推送</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 20px;">
+          <div class="card-title">🎛️ 跌倒判定灵敏度与防误报参数</div>
+          <div class="form-group">
+            <label>跌倒倒地静止超时判定 (秒)</label>
+            <select id="cfg-stillness">
+              <option value="5">5 秒 (极速预警，适合测试)</option>
+              <option value="8" selected>8 秒 (标准推荐，平衡精准与防误判)</option>
+              <option value="12">12 秒 (高容忍度，减少起身后延迟误报)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>目标路由器 MAC 白名单过滤</label>
+            <input type="text" id="cfg-router-mac" placeholder="例如: c0:06:c3:11:22:33 (留空则接收全部)">
+          </div>
+        </div>
+      </div>
+
+      <div id="sec-remote" class="tab-section">
+        <div class="card doc-section">
+          <h3>🌐 怎样在公司或外出时，通过手机 4G/5G 远程访问 SafeHalo？</h3>
+          <p>SafeHalo Web 控制台天然绑定 <code>0.0.0.0:8080</code>。由于家庭宽带通常无固定公网 IPv4，推荐以下三种零成本、高安全的远程访问方案：</p>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 20px 0;">
+            <div style="background: #f8fafc; border: 1px solid #bae6fd; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.05);">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                <span style="font-weight: 700; color: #0284c7;">★ 推荐方案 A：Cloudflare Tunnel</span>
+                <span style="background: #e0f2fe; color: #0284c7; font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; font-weight: 600;">免公网IP · 自动HTTPS</span>
+              </div>
+              <p style="font-size: 0.86rem; color: #64748b; margin-bottom: 10px;">
+                无需在路由器上做任何端口映射，全球 CDN 节点穿透，且自动配置免费 SSL 绿锁证书，手机端打开最流畅安全。
+              </p>
+              <div class="diagram-box" style="margin: 0; font-size: 0.8rem;">
+  # 1. 安装 Cloudflared
+  # macOS: brew install cloudflared
+  # OpenWrt: opkg update && opkg install cloudflared
+
+  # 2. 一键启动免费快速隧道:
+  cloudflared tunnel --url http://localhost:8080
+              </div>
+              <p style="font-size: 0.82rem; color: #059669; margin-top: 10px; font-weight: 600;">
+                运行后终端将返回独立公网链接 (如 <code>https://xxxx.trycloudflare.com</code>)，直接发给家人即可远程使用。
+              </p>
+            </div>
+
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                <span style="font-weight: 700; color: #059669;">方案 B：Tailscale 虚拟专网</span>
+                <span style="background: #ecfdf5; color: #059669; font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; font-weight: 600;">点对点加密 · 极度安全</span>
+              </div>
+              <p style="font-size: 0.86rem; color: #64748b; margin-bottom: 10px;">
+                在手机与路由器上同时安装 Tailscale，二者通过底层 WireGuard 协议组成私密加密内网。
+              </p>
+              <div class="diagram-box" style="margin: 0; font-size: 0.8rem;">
+  # 手机与家庭路由器登录同一账号
+  # 手机浏览器直接打开 Tailscale 内网地址:
+  http://100.x.x.x:8080
+              </div>
+              <p style="font-size: 0.82rem; color: #64748b; margin-top: 10px;">
+                不经过第三方中继，完全对外隐身，杜绝黑客扫描。
+              </p>
+            </div>
+          </div>
+
+          <h3>常见网络环境访问地址汇总</h3>
+          <table class="table">
+            <tr>
+              <th>使用场景</th>
+              <th>访问链接地址</th>
+              <th>适用人员</th>
+            </tr>
+            <tr>
+              <td><strong>家庭 WiFi 内网</strong></td>
+              <td><code>http://192.168.1.1:8080</code> 或 <code>http://localhost:8080</code></td>
+              <td>在家中连着路由器 WiFi 的电脑或手机</td>
+            </tr>
+            <tr>
+              <td><strong>外出公网访问</strong></td>
+              <td><code>https://&lt;你的域名或Cloudflare穿透地址&gt;</code></td>
+              <td>子女上班、出差外出，通过 4G/5G 手机随时查看</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: 系统管理（日志 / 成员） -->
+    <div id="tab-admin" class="tab-content">
+
+      <div class="subnav">
+        <button type="button" class="subnav-btn" onclick="jumpSection('sec-logs')" >系统日志</button>
+        <button type="button" class="subnav-btn" onclick="jumpSection('sec-users')" id="subnav-users" style="display: none;">成员管理</button>
+      </div>
+
+      <div id="sec-logs" class="tab-section">
+        <div class="card" style="margin-bottom: 20px;">
           <div class="card-title">
-            <span>模式快速切换</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 10px;">
-            <button class="btn" onclick="setSecurityMode('FALL_GUARD')">🛡️ 跌倒守护模式 (白天正常生活/老人独居)</button>
-            <button class="btn btn-secondary" onclick="setSecurityMode('AWAY_SECURITY')">🚨 离家隐形防盗模式 (全家外出/非法闯入告警)</button>
-            <button class="btn btn-secondary" onclick="setSecurityMode('NIGHT_GUARD')">🌙 夜间巡航模式 (客厅防盗 + 卧室跌倒)</button>
-            <button class="btn" style="background: var(--purple); margin-top: 4px;" onclick="triggerInspect()">🔍 立即启动定向深度排查 (主动激振微体征扫描)</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 日常作息画像与健康偏离分析 -->
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
-          <span>🌅 老人日常作息画像与健康偏离监测</span>
-          <span id="routine-status-badge" style="font-size: 0.8rem; padding: 3px 10px; border-radius: 20px; background: rgba(16,185,129,0.2); color: var(--success); font-weight: 600;">作息健康规律</span>
-        </div>
-        <div class="metric-grid" style="grid-template-columns: repeat(4, 1fr); margin-top: 12px;">
-          <div class="metric-item">
-            <div class="metric-label">今日起床时间</div>
-            <div class="metric-val" id="rt-wake-time" style="color: var(--cyan);">尚未起床</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">常态基准: <span id="rt-typical-wake">07:30</span></div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-label">昨夜入睡时间</div>
-            <div class="metric-val" id="rt-bed-time" style="color: #a78bfa;">待定</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">常态基准: <span id="rt-typical-bed">22:30</span></div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-label">昨夜起夜频次</div>
-            <div class="metric-val" id="rt-night-restless">0 次</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">健康上限: 4 次</div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-label">今日有效活动</div>
-            <div class="metric-val" id="rt-active-mins" style="color: var(--success);">0 分钟</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 2px;">走动频次累计</div>
-          </div>
-        </div>
-        <div id="routine-alert-box" style="display: none; margin-top: 14px; background: rgba(239,68,68,0.15); border: 1px solid var(--danger); border-radius: 8px; padding: 12px 16px; font-size: 0.88rem; color: #fca5a5;">
-          <strong>⚠️ 异常偏离通报: </strong><span id="routine-alert-text"></span>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-title">最近事件与状态转移日志</div>
-        <ul id="event-list" class="event-log">
-          <li class="event-item">
-            <span>系统启动并完成空房自适应基线校准</span>
-            <span class="event-time">刚刚</span>
-          </li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- TAB 2: 摆放与安装规范 -->
-    <div id="tab-placement" class="tab-content">
-      <div class="card" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1px solid #bae6fd; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; padding: 20px 26px;">
-        <div>
-          <div style="font-size: 1.1rem; font-weight: 700; color: #0284c7; margin-bottom: 4px;">📍 当前路由器已适配场景: <span id="current-room-text">客厅</span></div>
-          <div style="font-size: 0.85rem; color: #475569;" id="current-room-desc">算法已自适应优化开阔多径、大空间动能与宠物过滤</div>
-        </div>
-        <button class="btn" onclick="openPlacementModal()" style="white-space: nowrap;">🧭 重新配置摆放场景与调优算法</button>
-      </div>
-
-      <div class="card doc-section">
-        <h3>📐 路由器与接收探针的“黄金摆放法则”</h3>
-        <p>Wi-Fi 跌倒检测的精度 70% 取决于摆放位置。无线电在发射端（路由器）与接收端（ESP32-S3）之间会形成橄榄球状的<strong>第一菲涅尔区 (Fresnel Zone)</strong>，目标是让人体活动穿过该区域的主能量束。</p>
-
-        <div class="diagram-box">
-             [旧路由器 (AP)]                                  [ESP32-S3 接收节点]
-            (高 1.2m~1.4m)                                   (高 1.2m~1.4m)
-                  \       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~       /
-                   \    ~      第一菲涅尔主能量束       ~   /
-                    \ ~    (人体胸腰高度，覆盖大部分动作)    ~ /
-==================== \~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~/ ====================
-地面 (0~0.5m)          [ 🐾 地面宠物跑动仅擦碰外边缘，被算法完全过滤 ]
-        </div>
-
-        <h3>1. 高度要求：1.2米 ～ 1.5米（最关键）</h3>
-        <ul>
-          <li><strong>正确做法</strong>：将路由器和 ESP32 放置在桌面、书架、床头柜或中位墙插上（与成年人胸腹高度齐平）。</li>
-          <li><strong>为什么</strong>：高位部署不仅能捕捉人体重心骤降（摔倒），更让地面上 0.5 米以下的猫狗活动只处于能量束死角，物理隔绝宠物误报。</li>
-        </ul>
-
-        <h3>2. 典型房间布局推荐</h3>
-        <table class="table">
-          <tr>
-            <th>监测场景</th>
-            <th>路由器与探针建议位置</th>
-            <th>核心防范目标</th>
-          </tr>
-          <tr>
-            <td><strong>老人主卧</strong></td>
-            <td>路由器放床头柜，ESP32 放置在对面电视柜或房门对角线（直线距离 3~5米）</td>
-            <td>下床跌倒、床边滑落、起夜步态异常</td>
-          </tr>
-          <tr>
-            <td><strong>高危卫生间</strong></td>
-            <td>ESP32 安装在马桶正前方墙壁（1.3米防水盒），路由器置于卫生间门外</td>
-            <td>洗澡滑倒、如厕起身后眩晕倒地（Wi-Fi穿透木门/玻璃门）</td>
-          </tr>
-          <tr>
-            <td><strong>客厅大开间</strong></td>
-            <td>两端对角线放置，视距尽量跨越主要走道</td>
-            <td>行走摔倒、离家防盗全屋无死角覆盖</td>
-          </tr>
-        </table>
-
-        <h3>3. 严禁放置的“干扰黑名单”</h3>
-        <ul>
-          <li><strong>避开大型金属体与镜子</strong>：不要紧挨双开门大冰箱、大型落地全身镜（金属和水银镀层会全反射电磁波）。</li>
-          <li><strong>避开鱼缸与水体</strong>：2.4GHz 无线电极易被水分子强烈吸收。</li>
-          <li><strong>避开运转中的微波炉</strong>：微波炉工作在 2.45GHz，会造成信道噪声瞬时冲顶。</li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- TAB 3: 支持路由器清单 -->
-    <div id="tab-routers" class="tab-content">
-      <div class="card doc-section">
-        <h3>📡 什么样的旧路由器可以使用？</h3>
-        <p>SafeHalo 支持两种硬件组网形式，兼容市面上几乎所有旧路由器：</p>
-
-        <table class="table">
-          <tr>
-            <th>接入形态</th>
-            <th>适用旧路由器</th>
-            <th>硬件成本</th>
-            <th>特点</th>
-          </tr>
-          <tr>
-            <td><strong>形态 A：标准推荐（路由器 + ESP32 探针）</strong></td>
-            <td><strong>任何品牌的旧路由器</strong><br>(如小米、华为、TP-Link、水星、腾达、华硕、网件等，只要有 2.4GHz)</td>
-            <td>约 35 元 (1 块 ESP32-S3)</td>
-            <td><strong>零门槛</strong>，无需拆机刷固件。路由器只需固定 2.4GHz 信道 20MHz，ESP32-S3 负责精准测 CSI。</td>
-          </tr>
-          <tr>
-            <td><strong>形态 B：纯路由器自采自算（极客进阶）</strong></td>
-            <td><strong>Qualcomm Atheros 芯片路由器</strong><br>(可刷 OpenWrt 并打 Atheros CSI 补丁)</td>
-            <td>0 元</td>
-            <td>利用路由器自身 Wi-Fi 芯片提取 CSI，难度极高，需要刷写改动内核的 OpenWrt。</td>
-          </tr>
-        </table>
-
-        <h3 style="margin-top: 20px;">形态 B 完美支持的经典旧路由器型号库</h3>
-        <ul>
-          <li><strong>TP-Link</strong>: TL-WDR4300, TL-WDR3600, TL-WR703N, TL-WR841N v8/v9, TL-WDR7500 v2</li>
-          <li><strong>D-Link</strong>: DIR-825 B1, DIR-505</li>
-          <li><strong>水星 / 迅捷</strong>: MW4530R (AR9344)</li>
-          <li><strong>网件 Netgear</strong>: WNDR3700 v4, WNDR3800</li>
-        </ul>
-
-        <h3 style="margin-top: 20px;">路由器后台关键 Wi-Fi 设置（必做）</h3>
-        <ul>
-          <li><strong>Wi-Fi 频段</strong>: 仅开启 <strong>2.4GHz</strong>（5GHz 穿透差且多径波长过小）。</li>
-          <li><strong>固定信道</strong>: 务必从“自动跳频”改为<strong>固定信道 1、6 或 11</strong>。</li>
-          <li><strong>固定频宽</strong>: 设置为 <strong>20MHz</strong> (HT20)，禁止 40MHz 频宽捆绑。</li>
-        </ul>
-      </div>
-    </div>
-
-    <!-- TAB 4: 参数与手机通知配置 -->
-    <div id="tab-settings" class="tab-content">
-      <div class="card">
-        <div class="card-title">📱 微信与手机短信推送设置</div>
-        <div class="form-group">
-          <label>PushPlus (微信推送加) Token</label>
-          <input type="text" id="cfg-pushplus" placeholder="例如: 9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c">
-          <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">关注微信公众号「pushplus推送加」即可免费获取 Token，微信即时弹窗。</p>
-        </div>
-        <div class="form-group">
-          <label>Server酱 SendKey (可选)</label>
-          <input type="text" id="cfg-serverchan" placeholder="例如: SCT123456Txxxxxx">
-        </div>
-        <div class="form-group">
-          <label>家庭群 / 养老机构 Webhook 地址 (支持企业微信/飞书/钉钉)</label>
-          <input type="text" id="cfg-webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx">
-        </div>
-        <div style="display: flex; gap: 12px;">
-          <button class="btn" onclick="saveConfig()">💾 保存配置</button>
-          <button class="btn btn-secondary" onclick="sendTestPush()">🔔 发送测试告警到手机</button>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top: 20px;">
-        <div class="card-title">🎛️ 跌倒判定灵敏度与防误报参数</div>
-        <div class="form-group">
-          <label>跌倒倒地静止超时判定 (秒)</label>
-          <select id="cfg-stillness">
-            <option value="5">5 秒 (极速预警，适合测试)</option>
-            <option value="8" selected>8 秒 (标准推荐，平衡精准与防误判)</option>
-            <option value="12">12 秒 (高容忍度，减少起身后延迟误报)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>目标路由器 MAC 白名单过滤</label>
-          <input type="text" id="cfg-router-mac" placeholder="例如: c0:06:c3:11:22:33 (留空则接收全部)">
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 5: 系统与审计日志 -->
-    <div id="tab-logs" class="tab-content">
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-title">
-          <span>📋 系统与事件审计日志 (Audit & Security Logs)</span>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary" onclick="fetchLogs()">🔄 刷新日志</button>
-            <button class="btn" style="background: var(--success);" onclick="downloadLogs()">⬇ 下载日志文件</button>
-            <button class="btn btn-secondary" style="background: rgba(239,68,68,0.2); color: var(--danger);" onclick="clearLogs()">🗑 清空日志</button>
-          </div>
-        </div>
-        <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
-          所有跌倒告警、定向核验生命体征、宠物活动过滤和安防布防事件均具备精确毫秒级时间戳，自动轮转备份，便于复盘审计。
-        </p>
-
-        <!-- 筛选过滤器 -->
-        <div style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto;">
-          <button class="btn btn-secondary log-filter-btn active" onclick="filterLogs('ALL', this)">全部日志</button>
-          <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('FALL', this)">🚨 跌倒相关</button>
-          <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('INSPECTION', this)">🔍 定向核验</button>
-          <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('PET_FILTER', this)">🐾 宠物抑制</button>
-          <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('SECURITY', this)">🛡️ 安防告警</button>
-        </div>
-
-        <!-- 结构化事件表格 -->
-        <table class="table" style="margin-bottom: 20px;">
-          <thead>
-            <tr>
-              <th style="width: 170px;">时间戳</th>
-              <th style="width: 140px;">事件类型</th>
-              <th style="width: 90px;">级别</th>
-              <th>事件描述与生理特征参数</th>
-            </tr>
-          </thead>
-          <tbody id="logs-table-body">
-            <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">正在加载日志...</td></tr>
-          </tbody>
-        </table>
-
-        <!-- 原始文本日志输出窗口 -->
-        <div class="card-title" style="margin-top: 24px; font-size: 0.95rem;">
-          <span>📄 safehalo.log 原始输出预览 (最新 80 行)</span>
-          <span id="log-file-size" style="font-size: 0.8rem; color: var(--text-muted);">大小: 0 KB</span>
-        </div>
-        <pre id="raw-log-tail" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; font-family: monospace; font-size: 0.82rem; color: #0369a1; height: 260px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;"></pre>
-      </div>
-    </div>
-
-    <!-- TAB 6: 远程访问与公网穿透指南 -->
-    <div id="tab-remote" class="tab-content">
-      <div class="card doc-section">
-        <h3>🌐 怎样在公司或外出时，通过手机 4G/5G 远程访问 SafeHalo？</h3>
-        <p>SafeHalo Web 控制台天然绑定 <code>0.0.0.0:8080</code>。由于家庭宽带通常无固定公网 IPv4，推荐以下三种零成本、高安全的远程访问方案：</p>
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 20px 0;">
-          <div style="background: #f8fafc; border: 1px solid #bae6fd; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.05);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-weight: 700; color: #0284c7;">★ 推荐方案 A：Cloudflare Tunnel</span>
-              <span style="background: #e0f2fe; color: #0284c7; font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; font-weight: 600;">免公网IP · 自动HTTPS</span>
+            <span>📋 系统与事件审计日志 (Audit & Security Logs)</span>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary" onclick="fetchLogs()">刷新</button>
+              <button class="btn" style="background: var(--success);" onclick="downloadLogs()">下载日志</button>
+              <button class="btn btn-secondary" style="background: rgba(239,68,68,0.2); color: var(--danger);" onclick="clearLogs()" title="此操作无法撤销">清空日志</button>
             </div>
-            <p style="font-size: 0.86rem; color: #64748b; margin-bottom: 10px;">
-              无需在路由器上做任何端口映射，全球 CDN 节点穿透，且自动配置免费 SSL 绿锁证书，手机端打开最流畅安全。
-            </p>
-            <div class="diagram-box" style="margin: 0; font-size: 0.8rem;">
-# 1. 安装 Cloudflared
-# macOS: brew install cloudflared
-# OpenWrt: opkg update && opkg install cloudflared
+          </div>
+          <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
+            所有跌倒告警、定向核验生命体征、宠物活动过滤和安防布防事件均具备精确毫秒级时间戳，自动轮转备份，便于复盘审计。
+          </p>
 
-# 2. 一键启动免费快速隧道:
-cloudflared tunnel --url http://localhost:8080
-            </div>
-            <p style="font-size: 0.82rem; color: #059669; margin-top: 10px; font-weight: 600;">
-              运行后终端将返回独立公网链接 (如 <code>https://xxxx.trycloudflare.com</code>)，直接发给家人即可远程使用。
-            </p>
+          <!-- 筛选过滤器 -->
+          <div style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto;">
+            <button class="btn btn-secondary log-filter-btn active" onclick="filterLogs('ALL', this)">全部</button>
+            <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('FALL', this)">跌倒</button>
+            <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('INSPECTION', this)">定向核验</button>
+            <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('PET_FILTER', this)">宠物抑制</button>
+            <button class="btn btn-secondary log-filter-btn" onclick="filterLogs('SECURITY', this)">安防</button>
           </div>
 
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-              <span style="font-weight: 700; color: #059669;">方案 B：Tailscale 虚拟专网</span>
-              <span style="background: #ecfdf5; color: #059669; font-size: 0.75rem; padding: 2px 8px; border-radius: 6px; font-weight: 600;">点对点加密 · 极度安全</span>
-            </div>
-            <p style="font-size: 0.86rem; color: #64748b; margin-bottom: 10px;">
-              在手机与路由器上同时安装 Tailscale，二者通过底层 WireGuard 协议组成私密加密内网。
-            </p>
-            <div class="diagram-box" style="margin: 0; font-size: 0.8rem;">
-# 手机与家庭路由器登录同一账号
-# 手机浏览器直接打开 Tailscale 内网地址:
-http://100.x.x.x:8080
-            </div>
-            <p style="font-size: 0.82rem; color: #64748b; margin-top: 10px;">
-              不经过第三方中继，完全对外隐身，杜绝黑客扫描。
-            </p>
+          <!-- 结构化事件表格 -->
+          <table class="table" style="margin-bottom: 20px;">
+            <thead>
+              <tr>
+                <th style="width: 170px;">时间戳</th>
+                <th style="width: 140px;">事件类型</th>
+                <th style="width: 90px;">级别</th>
+                <th>事件描述与生理特征参数</th>
+              </tr>
+            </thead>
+            <tbody id="logs-table-body">
+              <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">正在加载日志...</td></tr>
+            </tbody>
+          </table>
+
+          <!-- 原始文本日志输出窗口 -->
+          <div class="card-title" style="margin-top: 24px; font-size: 0.95rem;">
+            <span>📄 safehalo.log 原始输出预览 (最新 80 行)</span>
+            <span id="log-file-size" style="font-size: 0.8rem; color: var(--text-muted);">大小: 0 KB</span>
           </div>
+          <pre id="raw-log-tail" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; font-family: monospace; font-size: 0.82rem; color: #0369a1; height: 260px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;"></pre>
         </div>
-
-        <h3>常见网络环境访问地址汇总</h3>
-        <table class="table">
-          <tr>
-            <th>使用场景</th>
-            <th>访问链接地址</th>
-            <th>适用人员</th>
-          </tr>
-          <tr>
-            <td><strong>家庭 WiFi 内网</strong></td>
-            <td><code>http://192.168.1.1:8080</code> 或 <code>http://localhost:8080</code></td>
-            <td>在家中连着路由器 WiFi 的电脑或手机</td>
-          </tr>
-          <tr>
-            <td><strong>外出公网访问</strong></td>
-            <td><code>https://&lt;你的域名或Cloudflare穿透地址&gt;</code></td>
-            <td>子女上班、出差外出，通过 4G/5G 手机随时查看</td>
-          </tr>
-        </table>
       </div>
-    </div>
 
-    <!-- TAB 7: 成员与用户管理 -->
-    <div id="tab-users" class="tab-content">
-      <div class="card" style="margin-bottom: 20px;">
-        <div class="card-title">
-          <span>👤 家庭成员与访问权限管理 (User Management)</span>
-          <button class="btn" onclick="openNewUserModal()">➕ 添加新家庭成员</button>
-        </div>
-        <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
-          支持为子女、看护人员分配独立账号。系统实施细粒度权限控制：管理员可调整灵敏度与清空记录，普通成员仅可查看生理状态与接收告警。
-        </p>
+      <div id="sec-users" class="tab-section" style="display: none;">
+        <div class="card" style="margin-bottom: 20px;">
+          <div class="card-title">
+            <span>👤 家庭成员与访问权限管理 (User Management)</span>
+            <button class="btn" onclick="openNewUserModal()">添加成员</button>
+          </div>
+          <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
+            支持为子女、看护人员分配独立账号。系统实施细粒度权限控制：管理员可调整灵敏度与清空记录，普通成员仅可查看生理状态与接收告警。
+          </p>
 
-        <table class="table" style="margin-bottom: 20px;">
-          <thead>
-            <tr>
-              <th>用户名</th>
-              <th>姓名/称呼</th>
-              <th>系统角色</th>
-              <th>创建时间</th>
-              <th>最后登录</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="users-table-body">
-            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">正在加载成员列表...</td></tr>
-          </tbody>
-        </table>
+          <table class="table" style="margin-bottom: 20px;">
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>姓名/称呼</th>
+                <th>系统角色</th>
+                <th>创建时间</th>
+                <th>最后登录</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body">
+              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">正在加载成员列表...</td></tr>
+            </tbody>
+          </table>
 
-        <div style="border-top: 1px solid var(--card-border); padding-top: 18px; margin-top: 20px;">
-          <h4 style="margin-bottom: 12px; font-size: 0.95rem;">🔑 修改当前登录密码</h4>
-          <div style="display: flex; gap: 12px; max-width: 500px;">
-            <input type="password" id="my-old-pwd" placeholder="原密码">
-            <input type="password" id="my-new-pwd" placeholder="新密码 (至少6位)">
-            <button class="btn btn-secondary" onclick="changeMyPassword()" style="white-space: nowrap;">确认修改</button>
+          <div style="border-top: 1px solid var(--card-border); padding-top: 18px; margin-top: 20px;">
+            <h4 style="margin-bottom: 12px; font-size: 0.95rem;">🔑 修改当前登录密码</h4>
+            <div style="display: flex; gap: 12px; max-width: 500px;">
+              <input type="password" id="my-old-pwd" placeholder="原密码">
+              <input type="password" id="my-new-pwd" placeholder="新密码 (至少6位)">
+              <button class="btn btn-secondary" onclick="changeMyPassword()" style="white-space: nowrap;">确认修改</button>
+            </div>
           </div>
         </div>
       </div>
@@ -907,8 +1008,8 @@ http://100.x.x.x:8080
       </div>
       <div id="login-err-msg" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 12px; display: none;"></div>
       <div style="display: flex; gap: 10px; margin-top: 20px;">
-        <button class="btn" style="flex: 1;" onclick="submitLogin()">登 录</button>
-        <button class="btn btn-secondary" onclick="closeAuthModal()">取 消</button>
+        <button class="btn" style="flex: 1;" onclick="submitLogin()">登录</button>
+        <button class="btn btn-secondary" onclick="closeAuthModal()">取消</button>
       </div>
     </div>
   </div>
@@ -944,8 +1045,8 @@ http://100.x.x.x:8080
         </select>
       </div>
       <div style="display: flex; gap: 10px; margin-top: 20px;">
-        <button class="btn" style="flex: 1;" onclick="submitCreateUser()">保 存</button>
-        <button class="btn btn-secondary" onclick="closeNewUserModal()">取 消</button>
+        <button class="btn" style="flex: 1;" onclick="submitCreateUser()">保存</button>
+        <button class="btn btn-secondary" onclick="closeNewUserModal()">取消</button>
       </div>
     </div>
   </div>
@@ -1034,7 +1135,7 @@ http://100.x.x.x:8080
         </div>
 
         <div style="display: flex; gap: 12px; margin-top: 18px;">
-          <button class="btn" style="flex: 1; padding: 11px;" onclick="switchWizardStep(2)">下一步：贴合生活习惯 ➔</button>
+          <button class="btn" style="flex: 1; padding: 11px;" onclick="switchWizardStep(2)">下一步</button>
           <button class="btn btn-secondary" onclick="closePlacementModal()">稍后再说</button>
         </div>
       </div>
@@ -1102,8 +1203,8 @@ http://100.x.x.x:8080
         </div>
 
         <div style="display: flex; gap: 12px; margin-top: 18px;">
-          <button class="btn btn-secondary" onclick="switchWizardStep(1)">⬅ 上一步</button>
-          <button class="btn" style="flex: 1; padding: 11px;" onclick="switchWizardStep(3)">下一步：安心联结与免打扰 ➔</button>
+          <button class="btn btn-secondary" onclick="switchWizardStep(1)">上一步</button>
+          <button class="btn" style="flex: 1; padding: 11px;" onclick="switchWizardStep(3)">下一步</button>
         </div>
       </div>
 
@@ -1128,7 +1229,7 @@ http://100.x.x.x:8080
           <label style="font-weight: 700;">2. 手机微信守护提醒绑定（选填，也可稍后在设置页填写）</label>
           <div style="display: flex; gap: 8px; margin-top: 6px;">
             <input type="text" id="inp-wizard-pushplus" placeholder="填入微信 PushPlus Token（留空则仅在本地控制台提醒）" style="flex: 1;">
-            <button class="btn btn-secondary" style="white-space: nowrap; font-size: 0.82rem;" onclick="sendOnboardingTestPush()">📲 发条平安测试</button>
+            <button class="btn btn-secondary" style="white-space: nowrap; font-size: 0.82rem;" onclick="sendOnboardingTestPush()" title="发条平安测试消息到手机">发送测试</button>
           </div>
           <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 5px;">
             💡 提示：点击「发条平安测试」，手机收到一条温和的报平安消息即代表联结成功。
@@ -1144,8 +1245,8 @@ http://100.x.x.x:8080
         </div>
 
         <div style="display: flex; gap: 12px; margin-top: 18px;">
-          <button class="btn btn-secondary" onclick="switchWizardStep(2)">⬅ 上一步</button>
-          <button class="btn" style="flex: 1; padding: 12px; font-size: 0.95rem; background: var(--success);" onclick="submitSavePlacement()">✅ 开启安心守护（5 秒环境自适应）</button>
+          <button class="btn btn-secondary" onclick="switchWizardStep(2)">上一步</button>
+          <button class="btn" style="flex: 1; padding: 12px; font-size: 0.95rem; background: var(--success);" onclick="submitSavePlacement()" title="保存后进行 5 秒环境自适应校准">开启安心守护</button>
         </div>
       </div>
     </div>
@@ -1348,8 +1449,13 @@ http://100.x.x.x:8080
           const cfg = d.config || {};
           const nickname = cfg.care_nickname || '家里长辈';
           const rName = cfg.room_name || '客厅';
-          document.getElementById('header-room-name').innerText = `${rName} · ${nickname}`;
+          document.getElementById('header-room-name').innerText = rName;
+          document.getElementById('room-placement-badge').title = `守护对象：${nickname} · 点击配置守护场景`;
           document.getElementById('current-room-text').innerText = `${rName}（守护对象：${nickname}）`;
+          FH.room = rName;
+          FH.nickname = nickname;
+          document.getElementById('fh-home-title').innerText =
+            (nickname && nickname !== '家里长辈') ? nickname + '的家' : '我的家';
 
           if (d.tuned_parameters) {
             document.getElementById('current-room-desc').innerText =
@@ -1391,16 +1497,17 @@ http://100.x.x.x:8080
           if (d.authenticated && d.user) {
             currentUser = d.user;
             document.getElementById('header-username').innerText = currentUser.display_name || currentUser.username;
-            document.getElementById('header-role').innerText = currentUser.role === 'admin' ? '(超级管理员)' : '(家庭成员)';
-            document.getElementById('auth-btn').innerText = '退出登录';
-            document.getElementById('tab-btn-users').style.display = currentUser.role === 'admin' ? 'block' : 'none';
+            document.getElementById('auth-btn').title = '点击退出登录';
+            const showUsers = currentUser.role === 'admin';
+            document.getElementById('sec-users').style.display = showUsers ? 'block' : 'none';
+            document.getElementById('subnav-users').style.display = showUsers ? 'inline-block' : 'none';
             closeAuthModal();
           } else {
             currentUser = null;
-            document.getElementById('header-username').innerText = '未登录';
-            document.getElementById('header-role').innerText = '(访客)';
-            document.getElementById('auth-btn').innerText = '登录';
-            document.getElementById('tab-btn-users').style.display = 'none';
+            document.getElementById('header-username').innerText = '登录';
+            document.getElementById('auth-btn').title = '登录';
+            document.getElementById('sec-users').style.display = 'none';
+            document.getElementById('subnav-users').style.display = 'none';
             openAuthModal();
           }
         })
@@ -1478,13 +1585,18 @@ http://100.x.x.x:8080
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-      event.target.classList.add('active');
+      const btn = document.querySelector('.tab-btn[data-tab="' + tabId + '"]');
+      if (btn) btn.classList.add('active');
       document.getElementById('tab-' + tabId).classList.add('active');
-      if (tabId === 'logs') {
+      document.body.classList.toggle('family-mode', tabId === 'dashboard');
+      if (tabId === 'admin') {
         fetchLogs();
-      } else if (tabId === 'users') {
-        fetchUsers();
+        if (currentUser && currentUser.role === 'admin') fetchUsers();
       }
+    }
+
+    function jumpSection(id) {
+      document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     /* 用户管理相关函数 */
@@ -1673,111 +1785,319 @@ http://100.x.x.x:8080
         });
     }
 
-    const stateMap = {
-      'EMPTY': { text: '空房间 (无人)', icon: '🏠', cls: 'badge-EMPTY', desc: '当前空间环境稳定，无人员或多径扰动。系统处于待命守护状态。' },
-      'STATIC': { text: '有人静止 (呼吸微动/坐卧)', icon: '🧘', cls: 'badge-STATIC', desc: '监测到微弱胸腔呼吸微动或轻微身体起伏，判定室内有人安全休息。' },
-      'MOVING': { text: '有人活动 (走动/日常家务)', icon: '🚶', cls: 'badge-MOVING', desc: '检测到大范围人体空间多普勒频移，老人正在室内正常走动。' },
-      'PET_ACTIVITY': { text: '🐾 宠物地面活动 (已自动抑制)', icon: '🐱', cls: 'badge-PET', desc: '检测到低体表面积（SPR < 35%）的地面宠物快速走动，已自动放行，不计入人体。' },
-      'FALL_CONFIRMED': { text: '🚨 跌倒报警已确认！', icon: '🚨', cls: 'badge-FALL', desc: '危险！检测到剧烈坠地冲击并持续静止超时未见起身，请立即前往或呼叫！' },
-      'FALL_SUSPECT': { text: '⚠ 疑似跌倒观测中...', icon: '⚠️', cls: 'badge-MOVING', desc: '检测到突发高冲击能量突变，系统正在观测是否在设定时间内恢复活动。' },
-      'CALIBRATING': { text: '正在校准空房基线...', icon: '⏳', cls: 'badge-CALIB', desc: '系统正在学习当前房间的多径本底噪声特征，请保持房间无人 5 秒。' }
+    /* ===== 家属端看板 ===== */
+    const FH = { room: '客厅', nickname: '', incidents: [] };
+
+    const FH_ICONS = {
+      check: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"></path></svg>',
+      alert: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 6v7"></path><path d="M12 17.5v.5"></path></svg>',
+      offline: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8.5a15 15 0 0 1 20 0"></path><path d="M5 12.5a10 10 0 0 1 14 0"></path><path d="M8.5 16a5 5 0 0 1 7 0"></path><path d="M12 20h.01"></path><path d="M3 3l18 18"></path></svg>',
+      clock: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 3"></path></svg>'
     };
+
+    const FH_ROOM_STATE = {
+      MOVING: { label: '有人 · 活动', bg: '#DDEFEA', fg: '#0B4F45', detail: '当前正在走动。' },
+      STATIC: { label: '有人 · 静止', bg: '#E1ECF6', fg: '#1D4F7C', detail: '有人安静休息。' },
+      EMPTY: { label: '无人', bg: '#ECEEED', fg: '#4A5552', detail: '当前无人。' },
+      PET_ACTIVITY: { label: '宠物活动', bg: '#ECEEED', fg: '#4A5552', detail: '宠物走动已自动过滤。' },
+      FALL_SUSPECT: { label: '疑似跌倒', bg: '#FBF0D9', fg: '#7A4B00', detail: '突发冲击后持续静止，正在观测。', hot: '#7A4B00' },
+      FALL_CONFIRMED: { label: '跌倒警报', bg: '#FBE6E3', fg: '#8E221B', detail: '本地询问无应答，请立即联系。', hot: '#8E221B' },
+      CALIBRATING: { label: '校准中', bg: '#ECEEED', fg: '#4A5552', detail: '正在学习环境基线。' },
+      ROUTER_OFFLINE: { label: '离线', bg: '#FBE6E3', fg: '#8E221B', detail: '心跳中断，请检查电源与网络。', hot: '#8E221B' }
+    };
+
+    const FH_EVENT_META = {
+      FALL_ALARM: { level: '警告', bg: '#FBF0D9', fg: '#7A4B00', title: '疑似跌倒' },
+      ROUTINE_ANOMALY: { level: '趋势', bg: '#E1ECF6', fg: '#1D4F7C', title: '作息偏离' },
+      SECURITY_INTRUSION: { level: '安防', bg: '#FBE6E3', fg: '#8E221B', title: '闯入告警' },
+      CHALLENGE_INTERCEPT: { level: '已解除', bg: '#DDEFEA', fg: '#0B4F45', title: '本地应答解除' }
+    };
+
+    function fhEsc(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function fhNow() {
+      const d = new Date();
+      return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+
+    function fhTimeLabel(ts, str) {
+      if (!ts) return fhEsc(str || '');
+      const d = new Date(ts * 1000);
+      const now = new Date();
+      const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      if (d.getTime() >= dayStart) return '今天 ' + hm;
+      if (d.getTime() >= dayStart - 86400000) return '昨天 ' + hm;
+      return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日 ' + hm;
+    }
+
+    function fhDateLabel(dateStr) {
+      const parts = String(dateStr || '').split('-');
+      return parts.length === 3 ? parseInt(parts[1], 10) + '/' + parseInt(parts[2], 10) : fhEsc(dateStr);
+    }
+
+    function setConn(ok) {
+      const el = document.getElementById('conn-status');
+      el.innerText = ok ? '在线' : '离线';
+      el.style.color = ok ? '' : 'var(--danger)';
+      const dot = document.querySelector('.pulse-dot');
+      if (dot) {
+        dot.style.background = ok ? '' : '#e11d48';
+        dot.style.boxShadow = ok ? '' : '0 0 8px #e11d48';
+      }
+    }
+
+    function renderFamilyHero(ha, rt, ml) {
+      const st = ha.human_state || 'EMPTY';
+      const room = (ml && ml.active_room) || FH.room;
+      let cls = 'fh-normal', icon = 'check', title = '一切正常', sub = '', showActions = false;
+      if (st === 'FALL_CONFIRMED' || ha.fall_detected) {
+        cls = 'fh-urgent'; icon = 'alert'; title = '跌倒警报，请立即联系';
+        sub = '剧烈冲击后持续静止，本地询问未得到回应，已通过已配置的渠道发送通知。';
+        showActions = true;
+      } else if (st === 'FALL_SUSPECT') {
+        cls = 'fh-warning'; icon = 'alert'; title = '疑似跌倒，正在本地询问';
+        sub = '检测到突发冲击后持续静止，系统正在观测是否自主起身。';
+        showActions = true;
+      } else if (st === 'ROUTER_OFFLINE') {
+        cls = 'fh-warning'; icon = 'offline'; title = '感知节点连接异常';
+        sub = '路由器数据中断，正在自动重连。恢复前无法感知屋内情况。';
+      } else if (st === 'CALIBRATING') {
+        icon = 'clock'; title = '正在校准基线';
+        sub = '系统正在学习房间环境特征，请保持房间无人片刻。';
+      } else if (st === 'MOVING') {
+        sub = room + '检测到活动，今天的作息和平时差不多。';
+      } else if (st === 'STATIC') {
+        sub = room + '有人安静休息。';
+      } else if (st === 'PET_ACTIVITY') {
+        sub = '检测到宠物地面活动，已自动过滤，不计入人员活动。';
+      } else {
+        sub = '屋内无人，系统处于待命守护状态。';
+      }
+      if (rt && rt.has_anomaly && (st === 'MOVING' || st === 'STATIC' || st === 'EMPTY')) {
+        sub += '作息出现偏离提示，请查看下方提醒。';
+      }
+      document.getElementById('fh-hero').className = 'fh-hero ' + cls;
+      document.getElementById('fh-hero-icon').innerHTML = FH_ICONS[icon];
+      document.getElementById('fh-hero-title').innerText = title;
+      document.getElementById('fh-hero-sub').innerText = sub;
+      document.getElementById('fh-hero-kicker').innerText =
+        fhNow() + ' 更新' + (cls === 'fh-warning' ? ' · 警告' : cls === 'fh-urgent' ? ' · 紧急' : '');
+      document.getElementById('fh-hero-actions').style.display = showActions ? 'flex' : 'none';
+    }
+
+    function renderFamilyRooms(ha, ml) {
+      const links = (ml && ml.links) || {};
+      const macs = Object.keys(links);
+      let entries;
+      if (macs.length > 0) {
+        entries = macs.map(mac => {
+          const t = links[mac];
+          return {
+            name: t.room || '监测区', state: t.state, packets: t.packets,
+            beat: t.last_seen ? Math.max(0, Math.round(Date.now() / 1000 - t.last_seen)) : null
+          };
+        });
+      } else {
+        entries = [{ name: FH.room, state: ha.human_state || 'EMPTY', packets: null, beat: null }];
+      }
+      document.getElementById('fh-rooms').innerHTML = entries.map(r => {
+        const m = FH_ROOM_STATE[r.state] || { label: r.state, bg: '#ECEEED', fg: '#4A5552', detail: '' };
+        const border = m.hot ? 'border-color:' + m.hot : '';
+        const meta = r.beat === null
+          ? '单链路守护 · 实时感知'
+          : '节点' + (r.beat <= 5 ? '在线' : '离线') + ' · 心跳 ' + r.beat + ' 秒前';
+        return '<div class="fh-room" style="' + border + '">' +
+          '<div class="fh-room-top"><div class="fh-room-name">' + fhEsc(r.name) + '</div>' +
+          '<span class="fh-badge" style="background:' + m.bg + ';color:' + m.fg + '">' + m.label + '</span></div>' +
+          '<div class="fh-room-detail">' + m.detail + '</div>' +
+          '<div class="fh-room-meta">' + meta + '</div></div>';
+      }).join('');
+
+      document.getElementById('fh-devices').innerHTML = entries.map(r => {
+        const offline = r.state === 'ROUTER_OFFLINE' || (r.beat !== null && r.beat > 5);
+        const status = offline
+          ? '<span class="fh-badge" style="background:#FBE6E3;color:#8E221B">离线</span>'
+          : '<span class="fh-badge" style="background:#DDEFEA;color:#0B4F45">在线</span>';
+        const beat = r.beat === null ? '--' : r.beat + ' 秒前';
+        const packets = r.packets === null || r.packets === undefined ? '--' : r.packets;
+        return '<tr><td style="font-weight:700">' + fhEsc(r.name) + '</td><td>' + status + '</td><td>' + beat + '</td><td>' + packets + '</td></tr>';
+      }).join('');
+    }
+
+    function renderFamilyWeek(rt) {
+      const hist = (rt.history || []).slice(-6);
+      const days = hist.map(h => ({ label: fhDateLabel(h.date), value: Math.round(h.total_active_minutes || 0), today: false }));
+      days.push({ label: '今天', value: Math.round(rt.total_active_minutes || 0), today: true });
+      const max = Math.max(1, ...days.map(d => d.value));
+      document.getElementById('fh-week').innerHTML = days.map(d =>
+        '<div class="fh-week-col"><span class="fh-week-val">' + d.value + '</span>' +
+        '<div class="fh-week-bar" style="height:' + Math.max(4, Math.round(d.value / max * 90)) + 'px;background:' + (d.today ? '#9DB9B2' : '#0F6B5E') + '"></div></div>'
+      ).join('');
+      document.getElementById('fh-week-labels').innerHTML = days.map(d => '<span>' + d.label + '</span>').join('');
+
+      const note = document.getElementById('fh-week-note');
+      const avg = arr => arr.reduce((s, d) => s + d.value, 0) / arr.length;
+      if (rt.has_anomaly && rt.active_anomalies && rt.active_anomalies.length > 0) {
+        const a = rt.active_anomalies[rt.active_anomalies.length - 1];
+        note.className = 'fh-note fh-note-warn';
+        note.style.display = 'block';
+        note.innerText = fhEsc(a.title + '：' + a.description) + ' 这只是作息偏离提示，不是健康判断。';
+      } else if (days.length >= 4 && avg(days.slice(-3)) < avg(days.slice(0, -3)) * 0.75) {
+        note.className = 'fh-note fh-note-warn';
+        note.style.display = 'block';
+        note.innerText = '近几天活动量比前几天少，可以打个电话聊聊。这只是活动趋势提示，不是健康判断。';
+      } else if (days.length < 3) {
+        note.className = 'fh-note fh-note-mute';
+        note.style.display = 'block';
+        note.innerText = '当前数据天数较少，累计更多天数后会自动展示趋势。';
+      } else {
+        note.style.display = 'none';
+      }
+    }
+
+    function renderFamilyRoutine(rt) {
+      if (!rt) return;
+      const hours = rt.hourly_activity || [];
+      const nowH = new Date().getHours();
+      const max = Math.max(1, ...hours);
+      document.getElementById('fh-hours').innerHTML = Array.from({ length: 24 }, (_, i) => {
+        const v = hours[i] || 0;
+        const h = Math.max(4, Math.round(v / max * 96));
+        const bg = i <= nowH ? '#0F6B5E' : '#E8E5DD';
+        return '<div class="fh-hour-bar" title="' + i + ' 点 · ' + v + ' 次" style="height:' + h + 'px;background:' + bg + '"></div>';
+      }).join('');
+      document.getElementById('fh-night').innerText = (rt.night_restless_count || 0) + ' 次';
+      document.getElementById('fh-sleep').innerText = (rt.bed_time || '待定') + ' / ' + (rt.wake_time || '尚未起床');
+      document.getElementById('fh-active').innerText = Math.round(rt.total_active_minutes || 0) + ' 分钟';
+      renderFamilyWeek(rt);
+    }
+
+    function renderFamilyEvents(items) {
+      FH.incidents = items || [];
+      const box = document.getElementById('fh-events');
+      if (!items || items.length === 0) {
+        box.innerHTML = '<div class="fh-empty">最近没有提醒，一切正常。</div>';
+        return;
+      }
+      box.innerHTML = items.slice(0, 8).map(ev => {
+        const m = FH_EVENT_META[ev.event_type] || { level: '事件', bg: '#ECEEED', fg: '#4A5552', title: ev.event_type };
+        const title = fhEsc((ev.room_name || '') + m.title);
+        const detail = fhEsc(String(ev.details || '').replace(/[,，]均值方差.*$/, ''));
+        let right;
+        if (ev.status === 'PENDING') {
+          right = '<div class="fh-event-opts">' +
+            '<button type="button" class="fh-fb" onclick="familyFeedback(\'' + ev.event_id + '\', false)">真实事件</button>' +
+            '<button type="button" class="fh-fb" onclick="familyFeedback(\'' + ev.event_id + '\', true)">误报</button></div>';
+        } else {
+          const done = ev.status === 'FALSE_ALARM' ? '已标记误报'
+            : ev.status === 'CONFIRMED_TRUE' ? '已确认真实事件'
+            : '已由本地应答解除';
+          right = '<span class="fh-fb-done">' + done + (ev.feedback_at ? ' · ' + fhEsc(ev.feedback_at.slice(5, 16)) : '') + '</span>';
+        }
+        return '<div class="fh-event"><div class="fh-event-info">' +
+          '<div class="fh-event-top"><span class="fh-level" style="background:' + m.bg + ';color:' + m.fg + '">' + m.level + '</span>' +
+          '<span class="fh-event-title">' + title + '</span></div>' +
+          '<div class="fh-event-detail">' + detail + '</div>' +
+          '<div class="fh-event-time">' + fhTimeLabel(ev.timestamp, ev.time_str) + '</div></div>' + right + '</div>';
+      }).join('');
+    }
+
+    function pollFamilyBoard() {
+      Promise.all([
+        fetch('/api/ha/status').then(r => r.json()),
+        fetch('/api/routine').then(r => r.json()),
+        fetch('/api/multilink').then(r => r.json())
+      ]).then(([ha, rt, ml]) => {
+        renderFamilyHero(ha, rt, ml);
+        renderFamilyRooms(ha, ml);
+        renderFamilyRoutine(rt);
+        document.getElementById('fh-updated').innerText = '更新于 ' + fhNow();
+        document.getElementById('fh-data-pill').innerText = '实时数据';
+        setConn(true);
+      }).catch(() => {
+        document.getElementById('fh-data-pill').innerText = '连接中断';
+        setConn(false);
+      });
+    }
+
+    function fetchFamilyIncidents() {
+      fetch('/api/incidents')
+        .then(r => r.json())
+        .then(d => renderFamilyEvents(d.incidents))
+        .catch(() => {});
+    }
+
+    function familyFeedback(eventId, isFalse) {
+      fetch('/api/incidents/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId, is_false_alarm: isFalse, category: 'other', operator: 'web_family_board' })
+      })
+        .then(r => r.json())
+        .then(d => { alert(d.message || '反馈已提交'); fetchFamilyIncidents(); })
+        .catch(() => alert('反馈提交失败，请检查网络。'));
+    }
+
+    function familyAcknowledgeSafe() {
+      fetch('/api/challenge/acknowledge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: '家属端看板确认平安' })
+      })
+        .then(r => r.json())
+        .then(d => { alert(d.message || '已确认平安'); pollFamilyBoard(); })
+        .catch(() => alert('提交失败，请检查网络。'));
+    }
+
+    function familyMarkLatestFalse() {
+      const latest = FH.incidents.find(ev => ev.status === 'PENDING');
+      familyFeedback(latest ? latest.event_id : null, true);
+    }
 
     function updateTelemetry() {
       fetch('/api/status')
-        .then(r => r.json())
+        .then(r => {
+          if (r.status === 401) throw new Error('unauthorized');
+          return r.json();
+        })
         .then(d => {
-          const s = stateMap[d.state] || { text: d.state, icon: '📡', cls: 'badge-EMPTY', desc: '' };
-          const badge = document.getElementById('hero-badge');
-          badge.className = 'state-badge ' + s.cls;
-          document.getElementById('hero-icon').innerText = s.icon;
-          document.getElementById('hero-text').innerText = s.text;
-          document.getElementById('hero-desc').innerText = s.desc;
+          document.getElementById('metric-rate').innerText = (d.sample_rate || 0).toFixed(1) + ' Hz';
+          document.getElementById('metric-var').innerText = (d.variance || 0).toFixed(6);
+          document.getElementById('metric-jitter').innerText = (d.jitter || 0).toFixed(1) + ' ms';
+          document.getElementById('metric-spr').innerText = ((d.spr || 0) * 100).toFixed(0) + '% (' + (d.is_pet ? '宠物特征' : '人体特征') + ')';
 
-          document.getElementById('metric-rate').innerText = d.sample_rate.toFixed(1) + ' Hz';
-          document.getElementById('metric-var').innerText = d.variance.toFixed(6);
-          document.getElementById('metric-jitter').innerText = d.jitter.toFixed(1) + ' ms';
-          document.getElementById('metric-spr').innerText = (d.spr * 100).toFixed(0) + '% (' + (d.is_pet ? '宠物特征' : '人体特征') + ')';
-
-          // 毫米波雷达指标更新
           const radarBadge = document.getElementById('metric-radar-badge');
           if (d.radar_online) {
             radarBadge.innerText = '在线 (' + (d.radar_protocol || 'auto') + ')';
-            radarBadge.style.background = 'rgba(16,185,129,0.2)';
-            radarBadge.style.color = 'var(--success)';
+            radarBadge.style.background = '#DDEFEA';
+            radarBadge.style.color = '#0B4F45';
             document.getElementById('metric-radar-z').innerText = (d.radar_z || 0).toFixed(2) + ' m';
             document.getElementById('metric-radar-bpm').innerText = (d.radar_bpm || 0).toFixed(1) + ' bpm';
             document.getElementById('metric-fused-state').innerText = d.fused_state || '双模协同';
           } else {
-            radarBadge.innerText = '未启用/单模CSI';
-            radarBadge.style.background = 'rgba(148,163,184,0.2)';
-            radarBadge.style.color = '#94a3b8';
+            radarBadge.innerText = '未启用 / 单模 CSI';
+            radarBadge.style.background = '#ECEEED';
+            radarBadge.style.color = '#4A5552';
           }
 
-          // 作息画像与偏离监测更新
-          if (d.routine) {
-            const rt = d.routine;
-            document.getElementById('rt-wake-time').innerText = rt.wake_time || '尚未起床';
-            document.getElementById('rt-bed-time').innerText = rt.bed_time || '待定';
-            document.getElementById('rt-typical-wake').innerText = rt.typical_wake || '07:30';
-            document.getElementById('rt-typical-bed').innerText = rt.typical_bed || '22:30';
-            document.getElementById('rt-night-restless').innerText = (rt.night_restless_count || 0) + ' 次';
-            document.getElementById('rt-active-mins').innerText = (rt.total_active_minutes || 0).toFixed(0) + ' 分钟';
-
-            const rtBadge = document.getElementById('routine-status-badge');
-            const alertBox = document.getElementById('routine-alert-box');
-            if (rt.has_anomaly && rt.active_anomalies && rt.active_anomalies.length > 0) {
-              const latest = rt.active_anomalies[rt.active_anomalies.length - 1];
-              rtBadge.innerText = '⚠️ 出现作息偏离';
-              rtBadge.style.background = 'rgba(239,68,68,0.2)';
-              rtBadge.style.color = 'var(--danger)';
-              alertBox.style.display = 'block';
-              document.getElementById('routine-alert-text').innerText = latest.title + ': ' + latest.description;
-            } else {
-              rtBadge.innerText = '作息健康规律';
-              rtBadge.style.background = 'rgba(16,185,129,0.2)';
-              rtBadge.style.color = 'var(--success)';
-              alertBox.style.display = 'none';
-            }
-          }
-
-          // 邻居干扰隔离指标更新
           if (d.neighbor_filter) {
             const nf = d.neighbor_filter;
             const purity = nf.channel_purity_percent !== undefined ? nf.channel_purity_percent : 100;
             const badge = document.getElementById('metric-neighbor-badge');
             badge.innerText = '纯净度 ' + purity.toFixed(1) + '%';
-            if (purity < 75) {
-              badge.style.background = 'rgba(239,68,68,0.2)';
-              badge.style.color = 'var(--danger)';
-            } else if (purity < 90) {
-              badge.style.background = 'rgba(234,179,8,0.2)';
-              badge.style.color = 'var(--warning)';
-            } else {
-              badge.style.background = 'rgba(16,185,129,0.2)';
-              badge.style.color = 'var(--success)';
-            }
-            document.getElementById('metric-neighbor-dropped').innerText = nf.rejected_neighbor_packets || 0;
-            if (nf.target_router_mac && document.getElementById('metric-router-mac-disp')) {
-              document.getElementById('metric-router-mac-disp').innerText = nf.target_router_mac;
-            }
+            badge.style.background = purity < 75 ? '#FBE6E3' : purity < 90 ? '#FBF0D9' : '#DDEFEA';
+            badge.style.color = purity < 75 ? '#8E221B' : purity < 90 ? '#7A4B00' : '#0B4F45';
+            document.getElementById('metric-neighbor-dropped').innerText = (nf.rejected_neighbor_packets || 0) + ' 包';
+            if (nf.target_router_mac) document.getElementById('metric-router-mac-disp').innerText = nf.target_router_mac;
             document.getElementById('metric-neighbor-nodes').innerText = (nf.neighbor_nodes_detected || 0) + ' 处';
-            document.getElementById('metric-neighbor-advice').innerText = (purity >= 88 ? '信道优良' : '建议避让切换');
-          }
-
-          if (d.recent_events && d.recent_events.length > 0) {
-            const list = document.getElementById('event-list');
-            list.innerHTML = d.recent_events.map(e => `
-              <li class="event-item">
-                <span>${e.text}</span>
-                <span class="event-time">${e.time}</span>
-              </li>
-            `).join('');
+            document.getElementById('metric-neighbor-advice').innerText = purity >= 88 ? '信道优良' : '建议避让切换';
           }
         })
-        .catch(err => {
-          document.getElementById('conn-status').innerText = '后台连接断开';
-          document.getElementById('conn-status').style.color = 'var(--danger)';
+        .catch(() => {
+          document.getElementById('metric-rate').innerText = '需登录';
         });
     }
 
@@ -1813,7 +2133,13 @@ http://100.x.x.x:8080
     // 页面加载即校验用户登录状态与摆放适配配置
     checkAuthStatus();
     checkPlacementStatus();
-    setInterval(updateTelemetry, 500);
+    document.body.classList.add('family-mode');
+    pollFamilyBoard();
+    fetchFamilyIncidents();
+    updateTelemetry();
+    setInterval(pollFamilyBoard, 2000);
+    setInterval(fetchFamilyIncidents, 10000);
+    setInterval(updateTelemetry, 2000);
   </script>
 </body>
 </html>

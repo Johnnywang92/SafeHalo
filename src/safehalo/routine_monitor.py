@@ -435,6 +435,25 @@ class RoutineMonitorEngine:
         except Exception as e:
             logger.error(f"[RoutineMonitor] 作息归档写入失败: {e}")
 
+    def get_recent_history(self, days: int = 7) -> List[Dict[str, Any]]:
+        """读取最近 days 天的已归档作息记录（不含今天），供家属看板趋势图使用"""
+        if not os.path.exists(self.history_path):
+            return []
+        records = []
+        try:
+            with open(self.history_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        records.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            return []
+        return records[-days:]
+
     def get_summary(self) -> Dict[str, Any]:
         """获取当前前端 Web 与 Home Assistant 消费的作息总览 JSON"""
         with self._lock:

@@ -89,6 +89,7 @@ def log_event(text: str):
 
 class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
     HTML_PATH = os.path.join(os.path.dirname(__file__), "web", "index.html")
+    routine_history_provider = None
 
     def _get_session(self) -> Optional[Dict]:
         """从 Authorization 标头或 Cookie 中提取并验证会话"""
@@ -172,7 +173,10 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
 
         # 1.2 作息画像与偏离异常分析接口 (公开)
         if self.path == "/api/routine":
-            self._send_json(200, shared_system_state.get("routine", {}))
+            payload = dict(shared_system_state.get("routine", {}))
+            provider = getattr(SafeHaloWebHandler, "routine_history_provider", None)
+            payload["history"] = provider() if provider else []
+            self._send_json(200, payload)
             return
 
         # 1.3 邻居 Wi-Fi 隔离与信道纯净度接口 (公开)

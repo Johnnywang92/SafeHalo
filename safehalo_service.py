@@ -155,6 +155,7 @@ class SafeHaloSupervisor:
         SafeHaloWebHandler.on_notifier_updated = self._on_web_notifier_updated
         SafeHaloWebHandler.on_false_alarm_feedback = self._on_web_false_alarm_feedback
         SafeHaloWebHandler.on_challenge_acknowledge = self._on_web_challenge_acknowledge
+        SafeHaloWebHandler.routine_history_provider = self.routine_monitor.get_recent_history
         shared_system_state["auto_calibration"] = self.engine.detector.auto_calibrator.get_status_summary()
 
     def _on_placement_updated(self, cfg, params):
@@ -509,6 +510,7 @@ class SafeHaloSupervisor:
                                     "state": t.current_state.value,
                                     "packets": t.packet_count,
                                     "diff_energy": round(t.diff_energy, 5),
+                                    "last_seen": t.last_seen,
                                 }
                                 for mac, t in ml_res.link_details.items()
                             },
