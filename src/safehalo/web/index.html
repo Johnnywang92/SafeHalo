@@ -790,8 +790,11 @@ http://100.x.x.x:8080
         <input type="text" id="login-username" placeholder="请输入用户名" value="admin">
       </div>
       <div class="form-group">
-        <label>密码</label>
-        <input type="password" id="login-password" placeholder="请输入密码" value="admin123">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <label style="margin-bottom: 0;">初始密码</label>
+          <span style="font-size: 0.78rem; color: #2563eb; cursor: pointer; user-select: none;" onclick="togglePasswordVisibility('login-password', this)">👁️ 隐藏/显示</span>
+        </div>
+        <input type="text" id="login-password" placeholder="请输入密码" value="admin123" style="font-family: monospace; font-size: 1rem; letter-spacing: 1px;">
       </div>
       <div id="login-err-msg" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 12px; display: none;"></div>
       <div style="display: flex; gap: 10px; margin-top: 20px;">
@@ -814,7 +817,11 @@ http://100.x.x.x:8080
       </div>
       <div class="form-group">
         <label>初始密码 (至少6位)</label>
-        <input type="password" id="new-user-pwd" placeholder="请设置初始登录密码">
+        <div style="position: relative;">
+          <input type="text" id="new-user-pwd" placeholder="请设置初始登录密码 (如 safehalo2026)" value="safehalo2026" style="font-family: monospace;">
+          <span style="position: absolute; right: 12px; top: 12px; font-size: 0.78rem; color: #2563eb; cursor: pointer; user-select: none;" onclick="togglePasswordVisibility('new-user-pwd', this)">👁️</span>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">默认直接明文显示初始密码，方便家属抄记或分享</div>
       </div>
       <div class="form-group">
         <label>家庭称呼/姓名 (如 大儿子、护工李阿姨)</label>
@@ -1303,6 +1310,18 @@ http://100.x.x.x:8080
         }
       } else {
         openAuthModal();
+      }
+    }
+
+    function togglePasswordVisibility(inputId, triggerEl) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        if (triggerEl) triggerEl.innerText = '👁️‍🗨️ 隐藏密码';
+      } else {
+        input.type = 'password';
+        if (triggerEl) triggerEl.innerText = '👁️ 显示密码';
       }
     }
 
