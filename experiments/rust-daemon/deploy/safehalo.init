@@ -10,7 +10,7 @@ start_service() {
 	config_load safehalo
 
 	local enabled input udp_addr serial_dev baud http_addr storage_dir
-	local home_mac calibration_secs stillness_secs window rssi_floor
+	local home_mac calibration_secs stillness_secs window rssi_floor api_token
 	config_get_bool enabled safehalo enabled 1
 	[ "$enabled" -eq 0 ] && return 0
 
@@ -25,6 +25,10 @@ start_service() {
 	config_get stillness_secs safehalo stillness_secs 5
 	config_get window safehalo window 30
 	config_get rssi_floor safehalo rssi_floor -72
+	config_get api_token safehalo api_token ''
+
+	local token_args
+	[ -n "$api_token" ] && token_args="--api-token $api_token"
 
 	local input_args
 	case "$input" in
@@ -45,6 +49,7 @@ start_service() {
 	procd_open_instance
 	procd_set_param command "$PROG" \
 		$input_args \
+		$token_args \
 		--http "$http_addr" \
 		--storage-dir "$storage_dir" \
 		--home-mac "$home_mac" \
