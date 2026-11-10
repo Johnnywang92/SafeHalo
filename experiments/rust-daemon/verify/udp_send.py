@@ -37,6 +37,4 @@ for i, line in enumerate(lines):
     dt = target - (time.monotonic() - start)
     if dt > 0:
         time.sleep(dt)
-sock.sendto(b"EOF", DEST)
-sock.sendto(b"EOF", DEST)
-print(f"sent {len(lines)} lines + EOF in {time.monotonic()-start:.2f}s")
+print(f"sent {len(lines)} lines in {time.monotonic()-start:.2f}s")

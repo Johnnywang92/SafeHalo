@@ -25,24 +25,24 @@ if os.path.exists(model):
 
 master, slave = pty.openpty()
 slave_name = os.ttyname(slave)
+lines = [l for l in open(SUBSET, encoding="utf-8") if l.strip()]
+run_secs = len(lines) / RATE + 10
 proc = subprocess.Popen(
     [str(DAEMON), "--serial", slave_name, "--baud", "115200", "--no-http",
      "--storage-dir", storage,
      "--trace", os.path.join(OUT, "trace.jsonl"),
      "--snapshot", os.path.join(OUT, "snapshot.json"),
-     "--run-secs", "60"],
+     "--run-secs", str(run_secs)],
     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
 )
 time.sleep(1.0)  # let stty + open finish before feeding data
-lines = [l for l in open(SUBSET, encoding="utf-8") if l.strip()]
 start = time.monotonic()
 for i, line in enumerate(lines):
     os.write(master, line.encode("utf-8"))
     dt = (i + 1) / RATE - (time.monotonic() - start)
     if dt > 0:
         time.sleep(dt)
-os.write(master, b"EOF\n")
-out, _ = proc.communicate(timeout=15)
+out, _ = proc.communicate(timeout=run_secs + 30)
 print(out.strip())
 os.close(master)
 os.close(slave)
