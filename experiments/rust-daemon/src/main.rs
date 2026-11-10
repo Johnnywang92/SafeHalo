@@ -30,6 +30,7 @@ struct Args {
     stdin: bool,
     http: String,
     no_http: bool,
+    api_token: String,
     storage_dir: String,
     trace: Option<String>,
     snapshot: Option<String>,
@@ -48,6 +49,7 @@ fn usage() -> ! {
          Usage: safehalo-daemon [--replay FILE [--replay-rate N]] | [--udp ADDR:PORT] | [--serial DEV [--baud N]] | [--stdin]\n\
          \x20 --http ADDR:PORT        HTTP listen address (default 127.0.0.1:8091)\n\
          \x20 --no-http               disable HTTP server\n\
+         \x20 --api-token TOKEN       require ?token= or Bearer auth on all HTTP endpoints (default off)\n\
          \x20 --storage-dir DIR       baseline model directory (default ./daemon-storage)\n\
          \x20 --trace FILE            write state/inspector event trace (JSONL)\n\
          \x20 --snapshot FILE         write final snapshot (JSON)\n\
@@ -60,7 +62,7 @@ fn usage() -> ! {
          \x20 --rssi-floor N          weak-signal floor dBm (default -72)\n\
          \x20 --serial DEV            read CSI lines from serial device (e.g. /dev/ttyUSB0)\n\
          \x20 --baud N                serial baud rate (default 115200)\n\
-         UDP/serial mode: a line exactly EOF triggers graceful shutdown."
+         Graceful shutdown: --run-secs / --max-packets limits, or procd stop."
     );
     std::process::exit(2);
 }
@@ -75,6 +77,7 @@ fn parse_args() -> Args {
         stdin: false,
         http: "127.0.0.1:8091".into(),
         no_http: false,
+        api_token: String::new(),
         storage_dir: "daemon-storage".into(),
         trace: None,
         snapshot: None,
@@ -103,6 +106,7 @@ fn parse_args() -> Args {
             "--stdin" => a.stdin = true,
             "--http" => a.http = need(),
             "--no-http" => a.no_http = true,
+            "--api-token" => a.api_token = need(),
             "--storage-dir" => a.storage_dir = need(),
             "--trace" => a.trace = Some(need()),
             "--snapshot" => a.snapshot = Some(need()),
@@ -279,7 +283,7 @@ fn snapshot_json(s: &Shared) -> String {
     )
 }
 
-fn handle_conn(mut st: TcpStream, shared: &Arc<Mutex<Shared>>) {
+fn handle_conn(mut st: TcpStream, shared: &Arc<Mutex<Shared>>, token: &str) {
     st.set_read_timeout(Some(Duration::from_millis(1000))).ok();
     let mut data: Vec<u8> = Vec::new();
     let mut buf = [0u8; 4096];
@@ -296,13 +300,39 @@ fn handle_conn(mut st: TcpStream, shared: &Arc<Mutex<Shared>>) {
         }
     }
     let req = String::from_utf8_lossy(&data);
-    let path = req
-        .lines()
-        .next()
-        .and_then(|l| l.split_whitespace().nth(1))
-        .unwrap_or("/");
-    let path = path.split('?').next().unwrap_or("/");
+    let req_line = req.lines().next().unwrap_or("");
+    let path_full = req_line.split_whitespace().nth(1).unwrap_or("/");
+    let path = path_full.split('?').next().unwrap_or("/");
     let s = shared.lock().unwrap();
+    if !token.is_empty() {
+        let query_ok = path_full
+            .split('?')
+            .nth(1)
+            .map(|q| {
+                q.split('&').any(|kv| {
+                    let mut it = kv.splitn(2, '=');
+                    it.next() == Some("token") && it.next() == Some(token)
+                })
+            })
+            .unwrap_or(false);
+        let bearer_ok = req.lines().any(|l| {
+            if !l.to_ascii_lowercase().starts_with("authorization:") {
+                return false;
+            }
+            let value = l.splitn(2, ':').nth(1).unwrap_or("").trim();
+            value == format!("Bearer {}", token) || value == token
+        });
+        if !query_ok && !bearer_ok {
+            let body = "{\"error\":\"unauthorized\"}";
+            let resp = format!(
+                "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = st.write_all(resp.as_bytes());
+            return;
+        }
+    }
     let (status, body) = match path {
         "/api/ha/status" => (200, ha_json(&s)),
         "/api/state" => (200, state_json(&s)),
@@ -318,7 +348,7 @@ fn handle_conn(mut st: TcpStream, shared: &Arc<Mutex<Shared>>) {
     let _ = st.write_all(resp.as_bytes());
 }
 
-fn serve(addr: String, shared: Arc<Mutex<Shared>>) {
+fn serve(addr: String, shared: Arc<Mutex<Shared>>, token: String) {
     let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
@@ -329,7 +359,50 @@ fn serve(addr: String, shared: Arc<Mutex<Shared>>) {
     eprintln!("[http] listening on http://{}/", addr);
     for stream in listener.incoming() {
         if let Ok(st) = stream {
-            handle_conn(st, &shared);
+            handle_conn(st, &shared, &token);
+        }
+    }
+}
+
+// std does not expose socket buffer sizing; call setsockopt directly.
+// SOL_SOCKET/SO_RCVBUF differ by platform family (Linux non-MIPS vs MIPS/macOS).
+#[cfg(unix)]
+mod sockopt {
+    use std::ffi::c_void;
+    use std::net::UdpSocket;
+    use std::os::unix::io::AsRawFd;
+
+    #[cfg(all(target_os = "linux", not(target_arch = "mips")))]
+    const SOL_SOCKET: i32 = 1;
+    #[cfg(all(target_os = "linux", not(target_arch = "mips")))]
+    const SO_RCVBUF: i32 = 8;
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "mips")))]
+    const SOL_SOCKET: i32 = 0xffff;
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "mips")))]
+    const SO_RCVBUF: i32 = 0x1002;
+
+    extern "C" {
+        fn setsockopt(fd: i32, level: i32, name: i32, value: *const c_void, len: u32) -> i32;
+        fn getsockopt(fd: i32, level: i32, name: i32, value: *mut c_void, len: *mut u32) -> i32;
+    }
+
+    pub fn set_udp_recv_buffer(sock: &UdpSocket, bytes: i32) -> Option<i32> {
+        let fd = sock.as_raw_fd();
+        let rc = unsafe {
+            setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bytes as *const i32 as *const c_void, 4)
+        };
+        if rc != 0 {
+            return None;
+        }
+        let mut actual: i32 = 0;
+        let mut len: u32 = 4;
+        let rc = unsafe {
+            getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &mut actual as *mut i32 as *mut c_void, &mut len)
+        };
+        if rc != 0 {
+            None
+        } else {
+            Some(actual)
         }
     }
 }
@@ -520,7 +593,11 @@ fn main() {
     if !args.no_http {
         let sh = Arc::clone(&shared);
         let addr = args.http.clone();
-        std::thread::spawn(move || serve(addr, sh));
+        let token = args.api_token.clone();
+        if !token.is_empty() {
+            eprintln!("[http] token authentication enabled");
+        }
+        std::thread::spawn(move || serve(addr, sh, token));
     }
 
     let start = Instant::now();
@@ -563,10 +640,12 @@ fn main() {
             std::process::exit(1);
         });
         sock.set_read_timeout(Some(Duration::from_millis(200))).ok();
-        eprintln!("[udp] listening on {}", addr);
+        match sockopt::set_udp_recv_buffer(&sock, 4 * 1024 * 1024) {
+            Some(actual) => eprintln!("[udp] listening on {} (rcvbuf {} KiB)", addr, actual / 1024),
+            None => eprintln!("[udp] listening on {}", addr),
+        }
         let mut buf = vec![0u8; 65536];
-        let mut eof = false;
-        while !eof && !stop_check(&p) {
+        while !stop_check(&p) {
             match sock.recv_from(&mut buf) {
                 Ok((n, _peer)) => {
                     let text = String::from_utf8_lossy(&buf[..n]);
@@ -574,10 +653,6 @@ fn main() {
                         let line = line.trim();
                         if line.is_empty() {
                             continue;
-                        }
-                        if line == "EOF" {
-                            eof = true;
-                            break;
                         }
                         process_line(line, &mut p, &shared);
                         if stop_check(&p) {
@@ -596,8 +671,7 @@ fn main() {
         eprintln!("[serial] reading {} @ {} baud", path, args.baud);
         let mut buf = [0u8; 8192];
         let mut pending: Vec<u8> = Vec::new();
-        let mut eof = false;
-        while !eof && !stop_check(&p) {
+        while !stop_check(&p) {
             let n = match file.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => n,
@@ -618,10 +692,6 @@ fn main() {
                 let line = text.trim();
                 if line.is_empty() {
                     continue;
-                }
-                if line == "EOF" {
-                    eof = true;
-                    break;
                 }
                 process_line(line, &mut p, &shared);
                 if stop_check(&p) {
