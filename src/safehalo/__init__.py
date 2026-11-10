@@ -26,6 +26,13 @@ from .routine_monitor import (
     RoutineAnomalyType,
     RoutineAnomalyEvent,
 )
+from .placement_adapter import (
+    PlacementAdapter,
+    RoomPlacementConfig,
+    TunedParameters,
+    RoomType,
+    MountHeightLevel,
+)
 
 __all__ = [
     "CSIPacket",
@@ -56,4 +63,9 @@ __all__ = [
     "RoutineProfileConfig",
     "RoutineAnomalyType",
     "RoutineAnomalyEvent",
+    "PlacementAdapter",
+    "RoomPlacementConfig",
+    "TunedParameters",
+    "RoomType",
+    "MountHeightLevel",
 ]

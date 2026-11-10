@@ -118,6 +118,16 @@ class SafeHaloSupervisor:
             on_anomaly=self._on_routine_anomaly
         )
 
+        # 路由器摆放自适应协调器与首次引导接驳
+        from src.safehalo.web_portal import placement_adapter, SafeHaloWebHandler
+        self.placement_adapter = placement_adapter
+        self.placement_adapter.apply_to_engines(csi_engine=self.engine, dual_engine=self.dual_engine)
+        SafeHaloWebHandler.on_placement_updated = self._on_placement_updated
+
+    def _on_placement_updated(self, cfg, params):
+        logger.info(f"收到 Web 端摆放配置更新: 【{cfg.room_name}】，正在动态注入算法参数...")
+        self.placement_adapter.apply_to_engines(csi_engine=self.engine, dual_engine=self.dual_engine)
+
     def _handle_exit_signal(self, signum, frame):
         logger.info(f"收到系统信号 ({signum})，正在优雅关闭 SafeHalo 服务...")
         self.running = False

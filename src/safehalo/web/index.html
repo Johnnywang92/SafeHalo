@@ -94,6 +94,16 @@
     .modal-overlay.active { display: flex; }
     .modal-box { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 28px; width: 90%; max-width: 420px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     .modal-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+
+    /* 摆放向导卡片选择样式 */
+    .room-card, .height-card {
+      background: #0f172a; border: 1px solid var(--card-border); border-radius: 10px;
+      padding: 12px; text-align: center; cursor: pointer; transition: all 0.2s;
+    }
+    .room-card:hover, .height-card:hover { border-color: var(--primary); background: #1e293b; }
+    .room-card.selected, .height-card.selected {
+      border-color: #38bdf8; background: rgba(56,189,248,0.15); box-shadow: 0 0 10px rgba(56,189,248,0.2);
+    }
   </style>
 </head>
 <body>
@@ -109,6 +119,11 @@
       <div class="header-status">
         <div class="pulse-dot"></div>
         <span id="conn-status">信号流正常</span>
+      </div>
+      <div id="room-placement-badge" style="display: flex; align-items: center; gap: 6px; background: rgba(56,189,248,0.15); border: 1px solid #0284c7; padding: 5px 12px; border-radius: 20px; font-size: 0.82rem; cursor: pointer;" onclick="openPlacementModal()" title="点击更改路由器摆放场景与重自适应算法">
+        <span>📍</span>
+        <span id="header-room-name" style="font-weight: 600; color: #38bdf8;">客厅</span>
+        <span style="font-size: 0.72rem; color: var(--text-muted);">(摆放适配)</span>
       </div>
       <div id="user-profile-badge" style="display: flex; align-items: center; gap: 8px; background: #0f172a; padding: 5px 12px; border-radius: 20px; font-size: 0.82rem; border: 1px solid var(--card-border);">
         <span id="header-user-icon">👤</span>
@@ -248,6 +263,14 @@
 
     <!-- TAB 2: 摆放与安装规范 -->
     <div id="tab-placement" class="tab-content">
+      <div class="card" style="background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #0284c7; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; padding: 18px 24px;">
+        <div>
+          <div style="font-size: 1.1rem; font-weight: 700; color: #38bdf8; margin-bottom: 4px;">📍 当前路由器已适配场景: <span id="current-room-text">客厅</span></div>
+          <div style="font-size: 0.85rem; color: #94a3b8;" id="current-room-desc">算法已自适应优化开阔多径、大空间动能与宠物过滤</div>
+        </div>
+        <button class="btn" onclick="openPlacementModal()" style="white-space: nowrap; background: #0284c7;">🧭 重新配置摆放场景与调优算法</button>
+      </div>
+
       <div class="card doc-section">
         <h3>📐 路由器与接收探针的“黄金摆放法则”</h3>
         <p>Wi-Fi 跌倒检测的精度 70% 取决于摆放位置。无线电在发射端（路由器）与接收端（ESP32-S3）之间会形成橄榄球状的<strong>第一菲涅尔区 (Fresnel Zone)</strong>，目标是让人体活动穿过该区域的主能量束。</p>
@@ -600,8 +623,205 @@ http://100.x.x.x:8080
     </div>
   </div>
 
+  <!-- 首次安装向导 / 摆放位置与算法自适应模态框 -->
+  <div id="modal-placement-wizard" class="modal-overlay">
+    <div class="modal-box" style="max-width: 580px;">
+      <div class="modal-title">
+        <span>🧭 路由器摆放位置与算法自适应向导</span>
+        <span style="cursor: pointer; color: var(--text-muted);" onclick="closePlacementModal()">✕</span>
+      </div>
+      <p style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 16px; line-height: 1.5;">
+        系统将根据您选择的<strong>房间场景与安装高度</strong>，自动切换并调优物理级 CSI 跌倒算法超参数（包括跌倒冲击阈值、倒地静止时间、床铺避让与水流去噪）。
+      </p>
+
+      <!-- 步骤 1: 选择房间场景 -->
+      <div class="form-group">
+        <label style="font-weight: 700; color: #fff;">1. 路由器 / 检测探针安装在哪个房间？</label>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
+          <div class="room-card selected" id="rc-LIVING_ROOM" onclick="selectRoomType('LIVING_ROOM', '客厅')">
+            <div style="font-size: 1.5rem;">🛋️</div>
+            <div style="font-weight: 600;">客 厅</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">大开间 / 宠物防扰</div>
+          </div>
+          <div class="room-card" id="rc-BEDROOM" onclick="selectRoomType('BEDROOM', '卧室')">
+            <div style="font-size: 1.5rem;">🛏️</div>
+            <div style="font-weight: 600;">卧 室</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">床铺避让 / 起卧微动</div>
+          </div>
+          <div class="room-card" id="rc-BATHROOM" onclick="selectRoomType('BATHROOM', '卫生间')">
+            <div style="font-size: 1.5rem;">🚿</div>
+            <div style="font-weight: 600; color: #f87171;">卫生间 (极高危)</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">湿滑摔倒 / 极速报警</div>
+          </div>
+          <div class="room-card" id="rc-KITCHEN" onclick="selectRoomType('KITCHEN', '厨房')">
+            <div style="font-size: 1.5rem;">🍳</div>
+            <div style="font-weight: 600;">厨 房</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">金属电器反射阻尼</div>
+          </div>
+          <div class="room-card" id="rc-CORRIDOR" onclick="selectRoomType('CORRIDOR', '走廊玄关')">
+            <div style="font-size: 1.5rem;">🚪</div>
+            <div style="font-weight: 600;">走廊玄关</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">线性通道快速响应</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 步骤 2: 安装高度 -->
+      <div class="form-group" style="margin-top: 14px;">
+        <label style="font-weight: 700; color: #fff;">2. 设备的摆放离地高度？</label>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
+          <div class="height-card" id="hc-LOW" onclick="selectMountHeight('LOW')">
+            <div style="font-weight: 600;">🪑 矮柜 / 低位</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">0.3米 ~ 0.8米</div>
+          </div>
+          <div class="height-card selected" id="hc-MID_DESK" onclick="selectMountHeight('MID_DESK')">
+            <div style="font-weight: 600; color: var(--success);">🖥️ 桌面 / 中位 ★</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">0.8米 ~ 1.5米 (黄金推荐)</div>
+          </div>
+          <div class="height-card" id="hc-HIGH_CEILING" onclick="selectMountHeight('HIGH_CEILING')">
+            <div style="font-weight: 600;">💡 壁挂 / 吸顶高位</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">1.8米 ~ 2.5米</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 步骤 3: 干扰勾选 -->
+      <div class="form-group" style="margin-top: 14px;">
+        <label style="font-weight: 700; color: #fff;">3. 特殊环境干扰因子</label>
+        <div style="display: flex; gap: 20px; margin-top: 6px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+            <input type="checkbox" id="chk-wizard-pets" onchange="updatePlacementParamPreview()"> 🐾 该房间有猫狗等宠物在地面活动
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
+            <input type="checkbox" id="chk-wizard-water" onchange="updatePlacementParamPreview()"> 💧 附近常有洗澡淋浴水花喷溅
+          </label>
+        </div>
+      </div>
+
+      <!-- 算法调优参数即时预览 -->
+      <div style="background: #0f172a; border: 1px dashed var(--card-border); border-radius: 8px; padding: 12px 14px; margin-top: 14px; font-size: 0.82rem;">
+        <div style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">⚡ 算法模型已自动推导最优超参数:</div>
+        <div id="wizard-param-preview" style="color: #cbd5e1; line-height: 1.6;">
+          跌倒冲击阈值: 2.10 | 倒地静止确认: 4.0秒 | 宠物SPR过滤: 30% | 客厅大开间多径适应
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px; margin-top: 20px;">
+        <button class="btn" style="flex: 1; padding: 12px; font-size: 0.95rem;" onclick="submitSavePlacement()">🚀 确认保存并启动 5 秒环境底噪自校准</button>
+        <button class="btn btn-secondary" onclick="closePlacementModal()">暂不设置</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let currentUser = null;
+    let selectedRoomType = 'LIVING_ROOM';
+    let selectedRoomName = '客厅';
+    let selectedMountHeight = 'MID_DESK';
+
+    function openPlacementModal() {
+      document.getElementById('modal-placement-wizard').classList.add('active');
+      updatePlacementParamPreview();
+    }
+
+    function closePlacementModal() {
+      document.getElementById('modal-placement-wizard').classList.remove('active');
+    }
+
+    function selectRoomType(type, name) {
+      selectedRoomType = type;
+      selectedRoomName = name;
+      document.querySelectorAll('.room-card').forEach(c => c.classList.remove('selected'));
+      const target = document.getElementById('rc-' + type);
+      if (target) target.classList.add('selected');
+      updatePlacementParamPreview();
+    }
+
+    function selectMountHeight(h) {
+      selectedMountHeight = h;
+      document.querySelectorAll('.height-card').forEach(c => c.classList.remove('selected'));
+      const target = document.getElementById('hc-' + h);
+      if (target) target.classList.add('selected');
+      updatePlacementParamPreview();
+    }
+
+    function updatePlacementParamPreview() {
+      const hasPets = document.getElementById('chk-wizard-pets').checked;
+      const hasWater = document.getElementById('chk-wizard-water').checked;
+      let spike = 2.1;
+      let still = 4.0;
+      let note = '客厅大开间多径适应';
+
+      if (selectedRoomType === 'BATHROOM') {
+        spike = 1.15; still = 3.0;
+        note = '卫生间极速防滑响应 (静止3秒极速确诊，水流去噪激活)';
+      } else if (selectedRoomType === 'BEDROOM') {
+        spike = 1.40; still = 4.5;
+        note = '卧室床铺避让 (地面高度门限0.30m，起卧微动敏感)';
+      } else if (selectedRoomType === 'KITCHEN') {
+        spike = 1.85; still = 3.8;
+        note = '厨房金属电器抗反弹阻尼';
+      } else if (selectedRoomType === 'CORRIDOR') {
+        spike = 1.60; still = 3.5;
+        note = '走廊直行通道快速响应';
+      }
+
+      if (selectedMountHeight === 'LOW') spike = (spike * 1.15).toFixed(2);
+      if (selectedMountHeight === 'HIGH_CEILING') spike = (spike * 0.95).toFixed(2);
+
+      const spr = hasPets ? '50% (严格猫狗过滤)' : '30% (标准人体过滤)';
+      document.getElementById('wizard-param-preview').innerText = 
+        `冲击阈值: ${spike} | 倒地静止确认: ${still}秒 | 宠物SPR: ${spr} | 场景策略: ${note}`;
+    }
+
+    function submitSavePlacement() {
+      const hasPets = document.getElementById('chk-wizard-pets').checked;
+      const hasWater = document.getElementById('chk-wizard-water').checked;
+
+      fetch('/api/placement/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_type: selectedRoomType,
+          room_name: selectedRoomName,
+          mount_height: selectedMountHeight,
+          has_pets: hasPets,
+          has_water_splash: hasWater
+        })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          alert('✅ ' + d.message);
+          closePlacementModal();
+          checkPlacementStatus();
+        } else {
+          alert('保存失败: ' + (d.message || '未知错误'));
+        }
+      })
+      .catch(err => {
+        alert('保存网络异常: ' + err);
+      });
+    }
+
+    function checkPlacementStatus() {
+      fetch('/api/placement')
+        .then(r => r.json())
+        .then(d => {
+          const cfg = d.config || {};
+          document.getElementById('header-room-name').innerText = cfg.room_name || '客厅';
+          document.getElementById('current-room-text').innerText = cfg.room_name || '客厅';
+          if (d.tuned_parameters && d.tuned_parameters.description) {
+            document.getElementById('current-room-desc').innerText = d.tuned_parameters.description;
+          }
+
+          // 若首次安装尚未配置，自动弹窗向导引导用户设置！
+          if (!d.is_configured) {
+            setTimeout(openPlacementModal, 600);
+          }
+        })
+        .catch(err => console.error('获取摆放配置失败:', err));
+    }
 
     function checkAuthStatus() {
       fetch('/api/auth/current')
@@ -1014,8 +1234,9 @@ http://100.x.x.x:8080
         .then(d => alert(d.message));
     }
 
-    // 页面加载即校验用户登录状态
+    // 页面加载即校验用户登录状态与摆放适配配置
     checkAuthStatus();
+    checkPlacementStatus();
     setInterval(updateTelemetry, 500);
   </script>
 </body>

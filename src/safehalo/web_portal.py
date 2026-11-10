@@ -17,6 +17,10 @@ from typing import Dict, List, Optional
 from .notifier import AlertNotifier
 from .logger import logger
 from .auth_manager import auth_manager
+from .placement_adapter import PlacementAdapter, RoomPlacementConfig, TunedParameters
+
+# 全局摆放自适应协调器实例
+placement_adapter = PlacementAdapter()
 
 # 全局共享状态字典 (供算法后台线程与 Web 前端交互)
 shared_system_state = {
@@ -34,6 +38,13 @@ shared_system_state = {
     "fused_state": "CALIBRATING",
     "fused_confidence": 1.0,
     "fused_reason": "单模 Wi-Fi CSI 运行中",
+    "placement": {
+        "room_type": placement_adapter.current_config.room_type,
+        "room_name": placement_adapter.current_config.room_name,
+        "mount_height": placement_adapter.current_config.mount_height,
+        "is_configured": placement_adapter.current_config.is_configured,
+        "description": placement_adapter.current_tuned_params.description,
+    },
     "routine": {
         "wake_time": "尚未起床",
         "bed_time": "待定",
@@ -152,6 +163,16 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json(200, shared_system_state.get("neighbor_filter", {}))
             return
 
+        # 1.4 路由器摆放位置与算法适配状态 (公开向导查询)
+        if self.path == "/api/placement":
+            from dataclasses import asdict
+            self._send_json(200, {
+                "config": asdict(placement_adapter.current_config),
+                "tuned_parameters": asdict(placement_adapter.current_tuned_params),
+                "is_configured": placement_adapter.current_config.is_configured,
+            })
+            return
+
         # --- 以下接口均需要登录 ---
         sess = self._get_session()
         if not sess:
@@ -228,6 +249,49 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 }, extra_headers={"Set-Cookie": cookie_str})
             else:
                 self._send_json(401, {"success": False, "message": token_or_msg})
+            return
+
+        # 1.1 首次安装向导 / 摆放位置保存与算法即时适配 (支持免登初始化配置)
+        if self.path == "/api/placement/save":
+            r_type = data.get("room_type", "LIVING_ROOM")
+            r_name = data.get("room_name", "客厅")
+            m_height = data.get("mount_height", "MID_DESK")
+            area = float(data.get("room_area_sqm", 25.0))
+            pets = bool(data.get("has_pets", False))
+            water = bool(data.get("has_water_splash", False))
+
+            cfg, params = placement_adapter.save_config(
+                room_type=r_type,
+                room_name=r_name,
+                mount_height=m_height,
+                room_area_sqm=area,
+                has_pets=pets,
+                has_water_splash=water,
+            )
+
+            # 更新全局遥测状态
+            shared_system_state["placement"] = {
+                "room_type": cfg.room_type,
+                "room_name": cfg.room_name,
+                "mount_height": cfg.mount_height,
+                "is_configured": cfg.is_configured,
+                "description": params.description,
+            }
+
+            # 触发引擎重新校准与算法更新回调
+            if hasattr(SafeHaloWebHandler, "on_placement_updated") and SafeHaloWebHandler.on_placement_updated:
+                try:
+                    SafeHaloWebHandler.on_placement_updated(cfg, params)
+                except Exception as e:
+                    logger.error(f"下发摆放自适应回调失败: {e}")
+
+            from dataclasses import asdict
+            self._send_json(200, {
+                "success": True,
+                "message": f"摆放位置已设定为【{r_name}】，算法超参数已完成物理级调优，正在进行 5 秒自校准！",
+                "config": asdict(cfg),
+                "tuned_parameters": asdict(params),
+            })
             return
 
         # --- 以下 POST 操作均需要有效登录态 ---
