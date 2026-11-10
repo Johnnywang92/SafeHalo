@@ -1,0 +1,53 @@
+{"type": "state_change", "ts": 1700000004.198526, "from": "CALIBRATING", "to": "EMPTY", "variance": 1.5e-05, "diff_energy": 0.00414}
+{"type": "state_change", "ts": 1700000005.11955, "from": "EMPTY", "to": "STATIC", "variance": 0.001357, "diff_energy": 0.00868}
+{"type": "impact", "ts": 1700000005.139409, "spike_ratio": 8.371216221780076, "diff_energy": 0.010135027252083251}
+{"type": "impact", "ts": 1700000005.161403, "spike_ratio": 7.538142345235213, "diff_energy": 0.011255094512038577}
+{"type": "impact", "ts": 1700000005.180764, "spike_ratio": 3.916865751083242, "diff_energy": 0.012082030832528224}
+{"type": "state_change", "ts": 1700000005.180764, "from": "STATIC", "to": "MOVING", "variance": 0.003017, "diff_energy": 0.01208}
+{"type": "impact", "ts": 1700000005.200772, "spike_ratio": 3.701389243952077, "diff_energy": 0.012785386689277974}
+{"type": "impact", "ts": 1700000005.239231, "spike_ratio": 3.4307242695901525, "diff_energy": 0.01379408225573168}
+{"type": "impact", "ts": 1700000005.260145, "spike_ratio": 2.545275706195268, "diff_energy": 0.014406626165650294}
+{"type": "impact", "ts": 1700000005.28143, "spike_ratio": 2.2251749969360466, "diff_energy": 0.01531320470888713}
+{"type": "impact", "ts": 1700000005.300071, "spike_ratio": 2.1506973680110604, "diff_energy": 0.01584349371882606}
+{"type": "impact", "ts": 1700000005.319109, "spike_ratio": 2.089408199682988, "diff_energy": 0.016308235148282123}
+{"type": "impact", "ts": 1700000005.34133, "spike_ratio": 1.8731668988208388, "diff_energy": 0.016861197114687695}
+{"type": "impact", "ts": 1700000005.361464, "spike_ratio": 1.8090930163367855, "diff_energy": 0.01745838164456586}
+{"type": "impact", "ts": 1700000005.640131, "spike_ratio": 2.3617615775779237, "diff_energy": 0.025017031241972527}
+{"type": "impact", "ts": 1700000005.659353, "spike_ratio": 2.2910442982624177, "diff_energy": 0.025789227740890104}
+{"type": "impact", "ts": 1700000005.681062, "spike_ratio": 2.1558204699441905, "diff_energy": 0.02740685692342777}
+{"type": "impact", "ts": 1700000005.69948, "spike_ratio": 2.096191049588552, "diff_energy": 0.02818648766960174}
+{"type": "impact", "ts": 1700000005.719067, "spike_ratio": 2.044390274474266, "diff_energy": 0.02890067709187832}
+{"type": "impact", "ts": 1700000005.738991, "spike_ratio": 1.817639726944275, "diff_energy": 0.02959471599147766}
+{"type": "impact", "ts": 1700000005.780521, "spike_ratio": 1.936937244936424, "diff_energy": 0.027771953703904565}
+{"type": "impact", "ts": 1700000008.439805, "spike_ratio": 1.9209335149994728, "diff_energy": 0.025264927041473536}
+{"type": "impact", "ts": 1700000008.461416, "spike_ratio": 1.9334982566806336, "diff_energy": 0.025100744177189774}
+{"type": "impact", "ts": 1700000008.480243, "spike_ratio": 1.9250704280158528, "diff_energy": 0.025210633544459255}
+{"type": "impact", "ts": 1700000008.500163, "spike_ratio": 1.9319640642539577, "diff_energy": 0.02512067693491187}
+{"type": "impact", "ts": 1700000008.518663, "spike_ratio": 1.9377772180691173, "diff_energy": 0.025045317209551346}
+{"type": "impact", "ts": 1700000011.459424, "spike_ratio": 1.8839071695107432, "diff_energy": 0.026257290823498373}
+{"type": "impact", "ts": 1700000011.478743, "spike_ratio": 1.9265999254545065, "diff_energy": 0.02567543877727888}
+{"type": "impact", "ts": 1700000011.499218, "spike_ratio": 1.939153239418757, "diff_energy": 0.02550922610383504}
+{"type": "impact", "ts": 1700000011.520363, "spike_ratio": 1.9776391256097163, "diff_energy": 0.025012803293455534}
+{"type": "impact", "ts": 1700000011.541124, "spike_ratio": 1.973839786100612, "diff_energy": 0.025060949111801824}
+{"type": "impact", "ts": 1700000011.739023, "spike_ratio": 3.034283771651918, "diff_energy": 0.027615901070865142}
+{"type": "impact", "ts": 1700000011.761482, "spike_ratio": 2.898287306200361, "diff_energy": 0.028911723237240082}
+{"type": "impact", "ts": 1700000011.780687, "spike_ratio": 2.9148897066972634, "diff_energy": 0.028747050108394963}
+{"type": "impact", "ts": 1700000011.819864, "spike_ratio": 2.8947065741883002, "diff_energy": 0.028947486838926877}
+{"type": "impact", "ts": 1700000011.839644, "spike_ratio": 2.891230493991285, "diff_energy": 0.028982289939531714}
+{"type": "impact", "ts": 1700000011.860005, "spike_ratio": 1.9642187433574068, "diff_energy": 0.02883155389921779}
+{"type": "impact", "ts": 1700000012.438775, "spike_ratio": 1.8101775298618878, "diff_energy": 0.02636839027873038}
+{"type": "impact", "ts": 1700000012.700339, "spike_ratio": 1.8046237205128188, "diff_energy": 0.0245159094396653}
+{"type": "impact", "ts": 1700000015.019151, "spike_ratio": 1.8346815205807256, "diff_energy": 0.022807353534925967}
+{"type": "impact", "ts": 1700000015.040048, "spike_ratio": 1.8048639193735785, "diff_energy": 0.023184146801717445}
+{"type": "impact", "ts": 1700000015.059509, "spike_ratio": 1.8529956501078084, "diff_energy": 0.02258193647753336}
+{"type": "impact", "ts": 1700000015.08144, "spike_ratio": 1.8977816909116918, "diff_energy": 0.02204902189976248}
+{"type": "state_change", "ts": 1700000015.600224, "from": "MOVING", "to": "FALL_SUSPECT", "variance": 0.000985, "diff_energy": 0.00872}
+{"type": "burst", "ts": 1700000015.619759, "rate": 100}
+{"type": "inspection", "ts": 1700000015.619759, "state": "HIGH_FREQ_BURST"}
+{"type": "inspection", "ts": 1700000017.281299, "state": "SCANNING_RESPIRATION"}
+{"type": "inspection", "ts": 1700000018.921152, "state": "AWAITING_CHALLENGE"}
+{"type": "challenge", "ts": 1700000018.921152}
+{"type": "inspection", "ts": 1700000020.640727, "state": "VERDICT_FALL"}
+{"type": "burst", "ts": 1700000020.640727, "rate": 30}
+{"type": "fall_alarm", "ts": 1700000020.640727}
+{"type": "state_change", "ts": 1700000020.640727, "from": "FALL_SUSPECT", "to": "FALL_CONFIRMED", "variance": 1.4e-05, "diff_energy": 0.0039}

@@ -7,3 +7,4 @@ experiments/*.log
 logs/*.log
 logs/*.jsonl
 data/*.json
+experiments/rust-daemon/fixtures/generated/

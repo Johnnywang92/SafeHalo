@@ -1,0 +1,66 @@
+{
+  "final_state": "FALL_CONFIRMED",
+  "counters": {
+    "packets": 2400,
+    "parse_dropped": 0,
+    "neighbor_rejected": 302,
+    "accepted": 2098,
+    "features": 2089,
+    "fall_alarms": 1,
+    "transitions": 5
+  },
+  "base_variance": 1.4364179886331273e-05,
+  "base_diff": 0.0037262350549088917,
+  "auto_calibration": {
+    "base_variance": 1.44e-05,
+    "base_diff": 0.003726,
+    "learning_days": 1,
+    "quiet_windows_learned": 0,
+    "maturity_percent": 25.0,
+    "boot_contamination_rejected": 0,
+    "drift_adaptations_count": 0,
+    "last_updated": "2026-11-10 09:12:48"
+  },
+  "neighbor_filter": {
+    "channel_purity_percent": 87.4,
+    "health_level": "MODERATE",
+    "home_mac_whitelist": [
+      "c0:06:c3:11:22:33"
+    ],
+    "total_inspected": 2400,
+    "accepted_home_packets": 2098,
+    "rejected_neighbor_packets": 302,
+    "neighbor_nodes_detected": 4,
+    "top_interfering_neighbors": [
+      {
+        "bssid": "d8:32:14:77:88:02",
+        "packets_intercepted": 96,
+        "max_rssi_dbm": -76,
+        "avg_rssi_dbm": -83.7,
+        "reason": "NOT_IN_HOME_WHITELIST"
+      },
+      {
+        "bssid": "aa:bb:cc:dd:ee:01",
+        "packets_intercepted": 92,
+        "max_rssi_dbm": -76,
+        "avg_rssi_dbm": -83.8,
+        "reason": "RANDOM_PROBE_MAC"
+      },
+      {
+        "bssid": "02:11:22:33:44:55",
+        "packets_intercepted": 60,
+        "max_rssi_dbm": -50,
+        "avg_rssi_dbm": -57.4,
+        "reason": "RANDOM_PROBE_MAC"
+      },
+      {
+        "bssid": "06:aa:bb:cc:dd:ee",
+        "packets_intercepted": 54,
+        "max_rssi_dbm": -50,
+        "avg_rssi_dbm": -62.5,
+        "reason": "RANDOM_PROBE_MAC"
+      }
+    ],
+    "channel_advice": "存在轻微邻居穿墙信号，已被算法实时隔离过滤，感知引擎运行正常。"
+  }
+}

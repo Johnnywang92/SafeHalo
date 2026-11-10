@@ -1,0 +1,7 @@
+# sha256 of every fixture artifact, relative to experiments/rust-daemon/fixtures/.
+# generated/main.txt is NOT committed (see .gitignore); run_fixtures.sh regenerates
+# it and fails if the hash below does not match, which is the reproducibility
+# contract for the whole golden suite.
+7f5a220eafb77d10aa72469ff568611a869ac97544f33e35897641aabefc3195  generated/main.txt
+f86e9ad3ec66676c2aa289a5b6f882ad98dcec4d10261d55c65840d2f91c06e7  golden/flag_off/trace.jsonl
+02324e2bf9b9ed4064e7dc29e96f6e84f915cd50f204f008775c6451038ec395  golden/flag_off/snapshot.json
