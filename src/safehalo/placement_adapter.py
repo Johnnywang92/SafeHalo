@@ -48,7 +48,7 @@ class MountHeightLevel(enum.Enum):
 
 @dataclass
 class TunedParameters:
-    """根据摆放位置计算出的算法超参数包"""
+    """根据摆放位置与生活节奏计算出的算法超参数包"""
     fall_spike_threshold: float         # CSI 冲击突变方差倍数阈值
     fall_stillness_seconds: float       # 跌倒倒地静止确诊时长 (秒)
     pet_spr_threshold: float            # 宠物子载波比率判定门限
@@ -56,19 +56,26 @@ class TunedParameters:
     hampel_window_size: int             # 时域去噪滑动窗口
     water_flow_damping: bool            # 是否激活水流微动阻尼
     metal_multipath_damping: bool       # 是否激活金属电器反射阻尼
-    description: str                    # 调优策略人读说明
+    description: str                    # 调优策略技术说明
+    friendly_summary: str = ""          # 温和人性化的方案摘要 (供 Web 向导展示)
 
 
 @dataclass
 class RoomPlacementConfig:
-    """房间摆放与首次安装配置"""
+    """房间摆放与首次安装人性化引导配置"""
     room_type: str = "LIVING_ROOM"
     room_name: str = "客厅"
     mount_height: str = "MID_DESK"
     room_area_sqm: float = 25.0
     has_pets: bool = False
     has_water_splash: bool = False
-    is_configured: bool = False         # 是否已完成首次向导引导
+    # 阶段 2 人性化向导扩展字段 (向后兼容默认值)
+    care_nickname: str = "家里长辈"          # 温暖称呼: 如 "爸妈" / "外婆" / "我自己"
+    living_arrangement: str = "SOLO"        # 居住情况: "SOLO" (独居) / "COHABIT" (双人或多人同住)
+    mobility_pace: str = "BRISK"            # 行动节奏: "BRISK" (步履轻快) / "STEADY_SLOW" (稳健慢行，加强缓跌保护)
+    wake_habit: str = "REGULAR"             # 早起习惯: "EARLY" (6-7点) / "REGULAR" (7-8:30) / "LEISURE" (8:30后)
+    enable_gentle_challenge: bool = True    # 疑似磕碰时是否先发轻柔提示音供本地挥手/按键取消
+    is_configured: bool = False             # 是否已完成首次向导引导
     updated_at: str = ""
 
 
@@ -103,13 +110,18 @@ class PlacementAdapter:
                             room_area_sqm=float(data.get("room_area_sqm", 25.0)),
                             has_pets=bool(data.get("has_pets", False)),
                             has_water_splash=bool(data.get("has_water_splash", False)),
+                            care_nickname=data.get("care_nickname", "家里长辈") or "家里长辈",
+                            living_arrangement=data.get("living_arrangement", "SOLO"),
+                            mobility_pace=data.get("mobility_pace", "BRISK"),
+                            wake_habit=data.get("wake_habit", "REGULAR"),
+                            enable_gentle_challenge=bool(data.get("enable_gentle_challenge", True)),
                             is_configured=bool(data.get("is_configured", True)),
                             updated_at=data.get("updated_at", ""),
                         )
                         self.current_tuned_params = self.compute_tuned_parameters(self.current_config)
                         logger.info(
                             f"[PlacementAdapter] 已载入摆放配置: 【{self.current_config.room_name}】"
-                            f"({self.current_config.room_type}, 高度: {self.current_config.mount_height})"
+                            f"(守护对象: {self.current_config.care_nickname}, 高度: {self.current_config.mount_height})"
                         )
                 except Exception as e:
                     logger.error(f"[PlacementAdapter] 读取摆放配置异常: {e}")
@@ -123,10 +135,16 @@ class PlacementAdapter:
         room_area_sqm: float = 25.0,
         has_pets: bool = False,
         has_water_splash: bool = False,
+        care_nickname: str = "家里长辈",
+        living_arrangement: str = "SOLO",
+        mobility_pace: str = "BRISK",
+        wake_habit: str = "REGULAR",
+        enable_gentle_challenge: bool = True,
     ) -> Tuple[RoomPlacementConfig, TunedParameters]:
-        """保存用户在向导中设置的房间与摆放参数，并计算自适应超参数"""
+        """保存用户在向导中设置的房间、生活节奏与守护偏好，并计算自适应超参数"""
         with self._lock:
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            nickname_clean = (care_nickname or "").strip() or "家里长辈"
             self.current_config = RoomPlacementConfig(
                 room_type=room_type,
                 room_name=room_name,
@@ -134,6 +152,11 @@ class PlacementAdapter:
                 room_area_sqm=room_area_sqm,
                 has_pets=has_pets,
                 has_water_splash=has_water_splash,
+                care_nickname=nickname_clean,
+                living_arrangement=(living_arrangement or "SOLO").upper(),
+                mobility_pace=(mobility_pace or "BRISK").upper(),
+                wake_habit=(wake_habit or "REGULAR").upper(),
+                enable_gentle_challenge=bool(enable_gentle_challenge),
                 is_configured=True,
                 updated_at=now_str,
             )
@@ -144,7 +167,7 @@ class PlacementAdapter:
                 with open(self.config_file, "w", encoding="utf-8") as f:
                     json.dump(asdict(self.current_config), f, ensure_ascii=False, indent=2)
                 logger.info(
-                    f"[PlacementAdapter] 成功保存新摆放配置: 【{room_name}】，算法超参数已完成物理级自适应调优"
+                    f"[PlacementAdapter] 成功保存新守护配置: 【{room_name} / {nickname_clean}】，算法超参数已完成自适应调优"
                 )
             except Exception as e:
                 logger.error(f"[PlacementAdapter] 写入摆放配置失败: {e}")
@@ -154,10 +177,13 @@ class PlacementAdapter:
     @staticmethod
     def compute_tuned_parameters(cfg: RoomPlacementConfig) -> TunedParameters:
         """
-        核心物理模型: 根据房间类别、高度与物理扰动因子推导算法最优参数
+        核心物理模型: 根据房间类别、高度、物理扰动因子及长辈日常行动节奏推导算法最优参数
         """
         r_type = cfg.room_type.upper()
         m_height = cfg.mount_height.upper()
+        pace = getattr(cfg, "mobility_pace", "BRISK").upper()
+        living = getattr(cfg, "living_arrangement", "SOLO").upper()
+        nickname = getattr(cfg, "care_nickname", "家里长辈") or "家里长辈"
 
         # 1. 默认基准参数 (中型客厅基准)
         spike_thresh = 2.0
@@ -165,27 +191,30 @@ class PlacementAdapter:
         pet_spr = 0.45 if cfg.has_pets else 0.30
         radar_floor_z = 0.38
         hampel_win = 5
-        water_damping = False
+        water_damping = bool(cfg.has_water_splash)
         metal_damping = False
         desc_parts = []
+        friendly_parts = []
 
         # 2. 房间类型专业微调
         if r_type == "BATHROOM":
-            # 卫生间: 极高危湿滑摔倒区，必须极速高灵敏响应
+            # 卫浴间: 湿滑区域重点关照，快速高敏响应
             spike_thresh = 1.15         # 灵敏度提高 74%
-            stillness_sec = 3.0        # 缩短至 3 秒极速报警
+            stillness_sec = 3.0        # 缩短至 3 秒快速响应
             radar_floor_z = 0.35
             hampel_win = 7             # 抑制花洒与地面流水高频抖动
             water_damping = True
-            desc_parts.append("【卫生间极速防滑响应】: 跌倒冲击阈值调至 1.15，倒地静止 3 秒极速触发，启用花洒水流微动抑制")
+            desc_parts.append("【卫生间极速防滑响应】: 跌倒冲击阈值调至 1.15，倒地静止 3 秒快速响应，启用花洒水流微动抑制")
+            friendly_parts.append("卫浴防滑高敏关照与花洒水流免误扰")
 
         elif r_type == "BEDROOM":
             # 卧室: 侧重起卧床面区分与微动呼吸
-            spike_thresh = 1.40         # 虚弱老人下床跌倒冲击可能较小，放宽门限
+            spike_thresh = 1.40         # 下床缓跌冲击可能较小，放宽门限
             stillness_sec = 4.5        # 4.5 秒确认 (排除翻身坐起)
             radar_floor_z = 0.30       # 床高通常 0.50m，必须低于 0.30m 方算倒地，杜绝卧床休息误报
             hampel_win = 5
             desc_parts.append("【卧室床铺安全避让】: 地面高度阈值收紧至 0.30m (避免床上坐卧误判)，强化夜间起夜灵敏度")
+            friendly_parts.append("床边起夜贴心保护（床上翻身坐卧不误报）")
 
         elif r_type == "KITCHEN":
             # 厨房: 金属电器多径反弹严重
@@ -193,18 +222,21 @@ class PlacementAdapter:
             stillness_sec = 3.8
             metal_damping = True
             desc_parts.append("【厨房金属抗反弹】: 激活冰箱与油烟机多径共振吸收，平抑高频谐振")
+            friendly_parts.append("厨房家电电磁反弹过滤")
 
         elif r_type == "CORRIDOR":
             # 走廊/玄关: 线性直道，快速通过通道
             spike_thresh = 1.60
             stillness_sec = 3.5
             desc_parts.append("【走廊线性通道】: 快速响应直行路径变化")
+            friendly_parts.append("走廊过道快速通行感知")
 
         else: # LIVING_ROOM 或 通用
             spike_thresh = 2.10
             stillness_sec = 4.0
             hampel_win = 7             # 客厅窗帘、电视等慢速多径抑制
             desc_parts.append("【客厅大开间多径适应】: 扩大时域滤波抗窗帘抖动，优化多人走动场景")
+            friendly_parts.append("客厅宽敞空间与窗帘微动防误扰")
 
         # 3. 安装高度补偿
         if m_height == "LOW":
@@ -217,10 +249,29 @@ class PlacementAdapter:
             radar_floor_z = max(radar_floor_z, 0.40)
             desc_parts.append("吸顶高位安装: 增强俯视垂向下坠特征")
 
-        # 4. 宠物补偿
+        # 4. 日常行动节奏适配 (用温和的“稳健慢行”捕捉顺墙/床沿缓慢滑倒的软跌倒)
+        if pace == "STEADY_SLOW":
+            spike_thresh *= 0.85
+            stillness_sec = max(stillness_sec, 4.5)
+            desc_parts.append("稳健慢行模式: 下调冲击阈值 15% 以捕捉扶墙/顺床沿缓慢滑落，并留足缓慢起身时间")
+            friendly_parts.append("开启「稳健慢行」软跌倒保护")
+
+        # 5. 双人/多人同住抗干扰微调
+        if living == "COHABIT":
+            hampel_win = max(hampel_win, 7)
+            desc_parts.append("多人同住场景: 增强背景活动平滑")
+            friendly_parts.append("双人/多人同住起居适配")
+
+        # 6. 宠物与水花补偿
         if cfg.has_pets:
             pet_spr = 0.50
             desc_parts.append("家有猫狗: 提升 SPR 载波参与度过滤级别至 50%")
+            friendly_parts.append("猫狗地面走动免打扰")
+
+        if getattr(cfg, "enable_gentle_challenge", True):
+            friendly_parts.append("疑似磕碰先发轻柔提示音（挥手即可取消）")
+
+        friendly_summary = f"✨ 已为【{nickname}】定制【{cfg.room_name}】守护方案：" + "、".join(friendly_parts)
 
         return TunedParameters(
             fall_spike_threshold=round(spike_thresh, 2),
@@ -231,6 +282,7 @@ class PlacementAdapter:
             water_flow_damping=water_damping,
             metal_multipath_damping=metal_damping,
             description=" | ".join(desc_parts),
+            friendly_summary=friendly_summary,
         )
 
     def apply_to_engines(

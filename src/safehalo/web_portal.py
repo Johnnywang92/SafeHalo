@@ -297,6 +297,13 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             area = float(data.get("room_area_sqm", 25.0))
             pets = bool(data.get("has_pets", False))
             water = bool(data.get("has_water_splash", False))
+            care_nickname = (data.get("care_nickname") or "家里长辈").strip() or "家里长辈"
+            living_arrangement = data.get("living_arrangement", "SOLO")
+            mobility_pace = data.get("mobility_pace", "BRISK")
+            wake_habit = data.get("wake_habit", "REGULAR")
+            enable_gentle_challenge = bool(data.get("enable_gentle_challenge", True))
+            pushplus_token = (data.get("pushplus_token") or "").strip()
+            webhook_url = (data.get("webhook_url") or "").strip()
 
             cfg, params = placement_adapter.save_config(
                 room_type=r_type,
@@ -305,15 +312,42 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 room_area_sqm=area,
                 has_pets=pets,
                 has_water_splash=water,
+                care_nickname=care_nickname,
+                living_arrangement=living_arrangement,
+                mobility_pace=mobility_pace,
+                wake_habit=wake_habit,
+                enable_gentle_challenge=enable_gentle_challenge,
             )
+
+            # 若用户在向导第 3 步填写了通知凭证，立即持久化保存并同步给通知引擎
+            if pushplus_token or webhook_url:
+                notifier = AlertNotifier(
+                    pushplus_token=pushplus_token if pushplus_token else None,
+                    webhook_url=webhook_url if webhook_url else None,
+                )
+                notifier.update_config(
+                    pushplus_token=pushplus_token if pushplus_token else None,
+                    webhook_url=webhook_url if webhook_url else None,
+                )
+                if hasattr(SafeHaloWebHandler, "on_notifier_updated") and SafeHaloWebHandler.on_notifier_updated:
+                    try:
+                        SafeHaloWebHandler.on_notifier_updated(notifier)
+                    except Exception as e:
+                        logger.error(f"向导同步通知配置失败: {e}")
 
             # 更新全局遥测状态
             shared_system_state["placement"] = {
                 "room_type": cfg.room_type,
                 "room_name": cfg.room_name,
                 "mount_height": cfg.mount_height,
+                "care_nickname": cfg.care_nickname,
+                "living_arrangement": cfg.living_arrangement,
+                "mobility_pace": cfg.mobility_pace,
+                "wake_habit": cfg.wake_habit,
+                "enable_gentle_challenge": cfg.enable_gentle_challenge,
                 "is_configured": cfg.is_configured,
                 "description": params.description,
+                "friendly_summary": params.friendly_summary,
             }
 
             # 触发引擎重新校准与算法更新回调
@@ -326,9 +360,40 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             from dataclasses import asdict
             self._send_json(200, {
                 "success": True,
-                "message": f"摆放位置已设定为【{r_name}】，算法超参数已完成物理级调优，正在进行 5 秒自校准！",
+                "message": f"已为【{cfg.care_nickname}】开启【{r_name}】安心守护方案，正在进行 5 秒静默环境自适应！",
                 "config": asdict(cfg),
                 "tuned_parameters": asdict(params),
+            })
+            return
+
+        # 1.15 首次安装向导：发送温和的“平安测试通知”到手机 (支持向导内直接验证)
+        if self.path == "/api/onboarding/test_push":
+            token = (data.get("pushplus_token") or "").strip()
+            webhook_url = (data.get("webhook_url") or "").strip()
+            nickname = (data.get("care_nickname") or placement_adapter.current_config.care_nickname or "家里长辈").strip()
+            room_name = (data.get("room_name") or placement_adapter.current_config.room_name or "客厅").strip()
+            notifier = AlertNotifier(
+                pushplus_token=token if token else None,
+                webhook_url=webhook_url if webhook_url else None,
+            )
+            if token or webhook_url:
+                notifier.update_config(
+                    pushplus_token=token if token else None,
+                    webhook_url=webhook_url if webhook_url else None,
+                )
+                if hasattr(SafeHaloWebHandler, "on_notifier_updated") and SafeHaloWebHandler.on_notifier_updated:
+                    try:
+                        SafeHaloWebHandler.on_notifier_updated(notifier)
+                    except Exception:
+                        pass
+            success = notifier.send_routine_anomaly_alert(
+                title=f"【平安联结测试】{nickname}的{room_name}守护已就绪",
+                description=f"这是一条来自 SafeHalo 的温和测试消息。全屋无摄像头纯无线电波守护已开启，遇到需要关心的情况时会第一时间通知您。",
+                severity="INFO",
+            )
+            self._send_json(200, {
+                "success": success,
+                "message": f"平安测试消息已发送（守护对象：{nickname}），请查看手机微信或推送终端！",
             })
             return
 

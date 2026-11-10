@@ -145,6 +145,10 @@ class SafeHaloSupervisor:
         self.pilot_manager = pilot_manager
         self.incident_manager = incident_manager
         self.placement_adapter.apply_to_engines(csi_engine=self.engine, dual_engine=self.dual_engine)
+        self.routine_monitor.apply_onboarding_preferences(
+            wake_habit=self.placement_adapter.current_config.wake_habit,
+            living_arrangement=self.placement_adapter.current_config.living_arrangement,
+        )
         SafeHaloWebHandler.on_placement_updated = self._on_placement_updated
         SafeHaloWebHandler.on_mode_changed = self._on_web_mode_changed
         SafeHaloWebHandler.on_trigger_inspect = self._on_web_trigger_inspect
@@ -154,8 +158,13 @@ class SafeHaloSupervisor:
         shared_system_state["auto_calibration"] = self.engine.detector.auto_calibrator.get_status_summary()
 
     def _on_placement_updated(self, cfg, params):
-        logger.info(f"收到 Web 端摆放配置更新: 【{cfg.room_name}】，正在动态注入算法参数...")
+        logger.info(f"收到 Web 端守护向导配置更新: 【{cfg.room_name} / {cfg.care_nickname}】，正在动态注入算法与作息参数...")
         self.placement_adapter.apply_to_engines(csi_engine=self.engine, dual_engine=self.dual_engine)
+        self.routine_monitor.apply_onboarding_preferences(
+            wake_habit=cfg.wake_habit,
+            living_arrangement=cfg.living_arrangement,
+        )
+        shared_system_state["routine"] = self.routine_monitor.get_summary()
 
     def _on_web_mode_changed(self, mode_str: str):
         target = self.security_guard.set_mode_by_name(mode_str)
@@ -204,6 +213,9 @@ class SafeHaloSupervisor:
 
     def _on_trigger_challenge(self, prompt_msg: str):
         """阶段 2：疑似跌倒持续静止，向硬件蜂鸣器/语音网关发起本地质询"""
+        if not getattr(self.placement_adapter.current_config, "enable_gentle_challenge", True):
+            logger.info("[ChallengeWindow] 用户已设置免提示音模式，静默观测是否自主起身...")
+            return
         logger.info(f"[ChallengeWindow] {prompt_msg}")
         if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
             try:

@@ -20,6 +20,7 @@ from src.safehalo.miniprogram_bridge import (
 )
 from src.safehalo.pilot_telemetry import PilotHouseholdManager
 from src.safehalo.placement_adapter import PlacementAdapter
+from src.safehalo.routine_monitor import RoutineMonitorEngine
 from src.safehalo.router_csi_engine import RouterCSIEngine
 
 
@@ -148,6 +149,37 @@ class TestPhase2Features(unittest.TestCase):
             md_report = pilot.export_markdown_report("2026-11")
             self.assertIn("H01", md_report)
             self.assertIn("达标", md_report)
+
+    def test_humanized_onboarding_preferences(self):
+        """测试温和人性化 3 步向导配置：亲情称呼、稳健慢行软跌倒适配与晚起悠闲型作息初始化"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            adapter = PlacementAdapter(config_dir=tmpdir)
+            cfg, params = adapter.save_config(
+                room_type="BEDROOM",
+                room_name="卧室",
+                mount_height="MID_DESK",
+                has_pets=True,
+                care_nickname="外婆",
+                living_arrangement="COHABIT",
+                mobility_pace="STEADY_SLOW",
+                wake_habit="LEISURE",
+                enable_gentle_challenge=True,
+            )
+
+            self.assertEqual(cfg.care_nickname, "外婆")
+            self.assertEqual(cfg.mobility_pace, "STEADY_SLOW")
+            # 卧室基准 1.40 * 稳健慢行 0.85 = 1.19
+            self.assertAlmostEqual(params.fall_spike_threshold, 1.19, places=2)
+            self.assertIn("外婆", params.friendly_summary)
+            self.assertIn("稳健慢行", params.friendly_summary)
+
+            routine = RoutineMonitorEngine(storage_dir=tmpdir)
+            rt_cfg = routine.apply_onboarding_preferences(
+                wake_habit=cfg.wake_habit,
+                living_arrangement=cfg.living_arrangement,
+            )
+            self.assertAlmostEqual(rt_cfg.typical_wake_hour, 9.0, places=1)
+            self.assertAlmostEqual(rt_cfg.max_outing_hours, 8.0, places=1)
 
 
 if __name__ == "__main__":

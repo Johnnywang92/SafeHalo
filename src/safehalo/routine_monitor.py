@@ -137,6 +137,42 @@ class RoutineMonitorEngine:
         except Exception as e:
             logger.error(f"[RoutineMonitor] 保存作息基线失败: {e}")
 
+    def apply_onboarding_preferences(
+        self,
+        wake_habit: str = "REGULAR",
+        living_arrangement: str = "SOLO",
+    ) -> RoutineProfileConfig:
+        """
+        根据首次安装向导中用户点选的早起习惯与居住形态，温和初始化作息基线，
+        避免安装首周因不了解老人睡懒觉或双人交替活动而触发误报。
+        """
+        with self._lock:
+            habit = (wake_habit or "REGULAR").upper()
+            if habit == "EARLY":
+                self.config.typical_wake_hour = 6.5      # 06:30 起床
+                self.config.wake_delay_tolerance_hours = 1.5
+            elif habit == "LEISURE":
+                self.config.typical_wake_hour = 9.0      # 09:00 晚起悠闲型
+                self.config.wake_delay_tolerance_hours = 2.0
+            else:
+                self.config.typical_wake_hour = 7.5      # 07:30 常规型
+                self.config.wake_delay_tolerance_hours = 1.5
+
+            if (living_arrangement or "SOLO").upper() == "COHABIT":
+                # 双人/多人同住时，放宽单次外出与日间安静容忍度
+                self.config.max_outing_hours = 8.0
+                self.config.max_daytime_inactivity_hours = 4.5
+            else:
+                self.config.max_outing_hours = 5.0
+                self.config.max_daytime_inactivity_hours = 3.5
+
+            self._save_profile()
+            logger.info(
+                f"[RoutineMonitor] 已应用人性化向导作息偏好: 早起习惯={habit} "
+                f"(基准起床={self.config.typical_wake_hour:.1f}h), 居住形态={living_arrangement}"
+            )
+            return self.config
+
     def update_state(
         self,
         human_state: HumanState,

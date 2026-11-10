@@ -95,15 +95,30 @@
     .modal-box { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 28px; width: 90%; max-width: 420px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     .modal-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
 
-    /* 摆放向导卡片选择样式 */
-    .room-card, .height-card {
+    /* 摆放与安心守护向导卡片选择样式 */
+    .room-card, .height-card, .choice-card {
       background: #0f172a; border: 1px solid var(--card-border); border-radius: 10px;
       padding: 12px; text-align: center; cursor: pointer; transition: all 0.2s;
     }
-    .room-card:hover, .height-card:hover { border-color: var(--primary); background: #1e293b; }
-    .room-card.selected, .height-card.selected {
+    .room-card:hover, .height-card:hover, .choice-card:hover { border-color: var(--primary); background: #1e293b; }
+    .room-card.selected, .height-card.selected, .choice-card.selected {
       border-color: #38bdf8; background: rgba(56,189,248,0.15); box-shadow: 0 0 10px rgba(56,189,248,0.2);
     }
+    .wizard-step-bar { display: flex; gap: 8px; margin-bottom: 16px; }
+    .wizard-step-pill {
+      flex: 1; text-align: center; padding: 8px 10px; border-radius: 8px; font-size: 0.82rem;
+      background: #0f172a; border: 1px solid var(--card-border); color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+    }
+    .wizard-step-pill.active {
+      background: rgba(56, 189, 248, 0.15); border-color: #38bdf8; color: #38bdf8; font-weight: 700;
+    }
+    .wizard-step-pane { display: none; }
+    .wizard-step-pane.active { display: block; }
+    .quick-tag {
+      display: inline-block; background: #0f172a; border: 1px solid var(--card-border); border-radius: 14px;
+      padding: 3px 10px; font-size: 0.76rem; color: #cbd5e1; cursor: pointer; margin-right: 6px; transition: all 0.15s;
+    }
+    .quick-tag:hover { border-color: #38bdf8; color: #38bdf8; }
   </style>
 </head>
 <body>
@@ -623,92 +638,203 @@ http://100.x.x.x:8080
     </div>
   </div>
 
-  <!-- 首次安装向导 / 摆放位置与算法自适应模态框 -->
+  <!-- 首次安装向导：温和人性化 3 步安心守护向导 -->
   <div id="modal-placement-wizard" class="modal-overlay">
-    <div class="modal-box" style="max-width: 580px;">
+    <div class="modal-box" style="max-width: 620px; max-height: 92vh; overflow-y: auto;">
       <div class="modal-title">
-        <span>🧭 路由器摆放位置与算法自适应向导</span>
+        <span>🏡 SafeHalo 居家安心守护向导</span>
         <span style="cursor: pointer; color: var(--text-muted);" onclick="closePlacementModal()">✕</span>
       </div>
-      <p style="color: #cbd5e1; font-size: 0.85rem; margin-bottom: 16px; line-height: 1.5;">
-        系统将根据您选择的<strong>房间场景与安装高度</strong>，自动切换并调优物理级 CSI 跌倒算法超参数（包括跌倒冲击阈值、倒地静止时间、床铺避让与水流去噪）。
-      </p>
 
-      <!-- 步骤 1: 选择房间场景 -->
-      <div class="form-group">
-        <label style="font-weight: 700; color: #fff;">1. 路由器 / 检测探针安装在哪个房间？</label>
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
-          <div class="room-card selected" id="rc-LIVING_ROOM" onclick="selectRoomType('LIVING_ROOM', '客厅')">
-            <div style="font-size: 1.5rem;">🛋️</div>
-            <div style="font-weight: 600;">客 厅</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted);">大开间 / 宠物防扰</div>
+      <!-- 顶部隐私安心定心丸 -->
+      <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 0.82rem; color: #d1fae5; line-height: 1.5;">
+        🔒 <strong>隐私安心承诺</strong>：SafeHalo 仅通过家中 Wi-Fi 无线电波感知日常微动，<strong>全屋零摄像头、不拍任何画面、不录音</strong>，守护安全更守护家人的自在与体面。
+      </div>
+
+      <!-- 3 步导航胶囊 (可随时点击切换) -->
+      <div class="wizard-step-bar">
+        <div class="wizard-step-pill active" id="wiz-pill-1" onclick="switchWizardStep(1)">① 放哪儿 (空间环境)</div>
+        <div class="wizard-step-pill" id="wiz-pill-2" onclick="switchWizardStep(2)">② 守护谁 (起居习惯)</div>
+        <div class="wizard-step-pill" id="wiz-pill-3" onclick="switchWizardStep(3)">③ 怎么联系 (安心联结)</div>
+      </div>
+
+      <!-- ==================== 第 1 步：放哪儿 (空间与环境) ==================== -->
+      <div class="wizard-step-pane active" id="wiz-pane-1">
+        <div class="form-group">
+          <label style="font-weight: 700; color: #fff;">1. 这台设备主要安放在哪个房间？</label>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
+            <div class="room-card selected" id="rc-LIVING_ROOM" onclick="selectRoomType('LIVING_ROOM', '客厅')">
+              <div style="font-size: 1.4rem;">🛋️</div>
+              <div style="font-weight: 600;">客 厅</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">日常活动 / 窗帘防误扰</div>
+            </div>
+            <div class="room-card" id="rc-BEDROOM" onclick="selectRoomType('BEDROOM', '卧室')">
+              <div style="font-size: 1.4rem;">🛏️</div>
+              <div style="font-weight: 600;">卧 室</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">床边起夜 / 睡眠免打扰</div>
+            </div>
+            <div class="room-card" id="rc-BATHROOM" onclick="selectRoomType('BATHROOM', '卫浴间')">
+              <div style="font-size: 1.4rem;">🚿</div>
+              <div style="font-weight: 600; color: #38bdf8;">卫浴间</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">开启防滑重点关照</div>
+            </div>
+            <div class="room-card" id="rc-KITCHEN" onclick="selectRoomType('KITCHEN', '厨房')">
+              <div style="font-size: 1.4rem;">🍳</div>
+              <div style="font-weight: 600;">厨 房</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">家电反射自动过滤</div>
+            </div>
+            <div class="room-card" id="rc-CORRIDOR" onclick="selectRoomType('CORRIDOR', '走廊玄关')">
+              <div style="font-size: 1.4rem;">🚪</div>
+              <div style="font-weight: 600;">走廊玄关</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">过道出入贴心感知</div>
+            </div>
           </div>
-          <div class="room-card" id="rc-BEDROOM" onclick="selectRoomType('BEDROOM', '卧室')">
-            <div style="font-size: 1.5rem;">🛏️</div>
-            <div style="font-weight: 600;">卧 室</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted);">床铺避让 / 起卧微动</div>
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label style="font-weight: 700; color: #fff;">2. 设备摆放的大致高度？</label>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
+            <div class="height-card" id="hc-LOW" onclick="selectMountHeight('LOW')">
+              <div style="font-weight: 600;">🪑 矮柜高度</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">约 0.3米 ~ 0.8米</div>
+            </div>
+            <div class="height-card selected" id="hc-MID_DESK" onclick="selectMountHeight('MID_DESK')">
+              <div style="font-weight: 600; color: var(--success);">🖥️ 桌面高度 ★</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">0.8米 ~ 1.5米 (推荐)</div>
+            </div>
+            <div class="height-card" id="hc-HIGH_CEILING" onclick="selectMountHeight('HIGH_CEILING')">
+              <div style="font-weight: 600;">💡 高处壁挂</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">约 1.8米 ~ 2.5米</div>
+            </div>
           </div>
-          <div class="room-card" id="rc-BATHROOM" onclick="selectRoomType('BATHROOM', '卫生间')">
-            <div style="font-size: 1.5rem;">🚿</div>
-            <div style="font-weight: 600; color: #f87171;">卫生间 (极高危)</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted);">湿滑摔倒 / 极速报警</div>
+        </div>
+
+        <div class="form-group" style="margin-top: 14px; margin-bottom: 8px;">
+          <label style="font-weight: 700; color: #fff;">3. 家里是否有以下小情况？（帮您自动免除日常误扰）</label>
+          <div style="display: flex; flex-wrap: wrap; gap: 18px; margin-top: 8px;">
+            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: #e2e8f0;">
+              <input type="checkbox" id="chk-wizard-pets" onchange="updatePlacementParamPreview()"> 🐾 家里有猫狗等爱宠在地面走动
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: #e2e8f0;">
+              <input type="checkbox" id="chk-wizard-water" onchange="updatePlacementParamPreview()"> 💧 附近常有淋浴水花或加湿器水雾
+            </label>
           </div>
-          <div class="room-card" id="rc-KITCHEN" onclick="selectRoomType('KITCHEN', '厨房')">
-            <div style="font-size: 1.5rem;">🍳</div>
-            <div style="font-weight: 600;">厨 房</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted);">金属电器反射阻尼</div>
-          </div>
-          <div class="room-card" id="rc-CORRIDOR" onclick="selectRoomType('CORRIDOR', '走廊玄关')">
-            <div style="font-size: 1.5rem;">🚪</div>
-            <div style="font-weight: 600;">走廊玄关</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted);">线性通道快速响应</div>
-          </div>
+        </div>
+
+        <div style="display: flex; gap: 12px; margin-top: 18px;">
+          <button class="btn" style="flex: 1; padding: 11px;" onclick="switchWizardStep(2)">下一步：贴合生活习惯 ➔</button>
+          <button class="btn btn-secondary" onclick="closePlacementModal()">稍后再说</button>
         </div>
       </div>
 
-      <!-- 步骤 2: 安装高度 -->
-      <div class="form-group" style="margin-top: 14px;">
-        <label style="font-weight: 700; color: #fff;">2. 设备的摆放离地高度？</label>
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
-          <div class="height-card" id="hc-LOW" onclick="selectMountHeight('LOW')">
-            <div style="font-weight: 600;">🪑 矮柜 / 低位</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted);">0.3米 ~ 0.8米</div>
+      <!-- ==================== 第 2 步：守护谁 (温和贴合生活习惯) ==================== -->
+      <div class="wizard-step-pane" id="wiz-pane-2">
+        <div class="form-group">
+          <label style="font-weight: 700; color: #fff;">1. 您希望怎么温暖地称呼守护对象？（用于消息提醒显示）</label>
+          <div style="display: flex; gap: 10px; align-items: center; margin-top: 6px;">
+            <input type="text" id="inp-care-nickname" value="家里长辈" placeholder="例如：爸妈、外婆、老爸、我自己" oninput="updatePlacementParamPreview()" style="flex: 1;">
           </div>
-          <div class="height-card selected" id="hc-MID_DESK" onclick="selectMountHeight('MID_DESK')">
-            <div style="font-weight: 600; color: var(--success);">🖥️ 桌面 / 中位 ★</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted);">0.8米 ~ 1.5米 (黄金推荐)</div>
+          <div style="margin-top: 8px;">
+            <span style="font-size: 0.75rem; color: var(--text-muted); margin-right: 6px;">快捷点选：</span>
+            <span class="quick-tag" onclick="setQuickNickname('爸妈')">爸妈</span>
+            <span class="quick-tag" onclick="setQuickNickname('外婆/奶奶')">外婆/奶奶</span>
+            <span class="quick-tag" onclick="setQuickNickname('外公/爷爷')">外公/爷爷</span>
+            <span class="quick-tag" onclick="setQuickNickname('我自己')">我自己</span>
           </div>
-          <div class="height-card" id="hc-HIGH_CEILING" onclick="selectMountHeight('HIGH_CEILING')">
-            <div style="font-weight: 600;">💡 壁挂 / 吸顶高位</div>
-            <div style="font-size: 0.72rem; color: var(--text-muted);">1.8米 ~ 2.5米</div>
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label style="font-weight: 700; color: #fff;">2. 家里的常住情况？</label>
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 8px;">
+            <div class="choice-card selected" id="lc-SOLO" onclick="selectLivingArrangement('SOLO')">
+              <div style="font-weight: 600;">👤 一人独居</div>
+              <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 3px;">精准贴合单人起居与外出归家节奏</div>
+            </div>
+            <div class="choice-card" id="lc-COHABIT" onclick="selectLivingArrangement('COHABIT')">
+              <div style="font-weight: 600;">👥 两人及以上同住</div>
+              <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 3px;">老两口或家人同住，自动适应交替走动</div>
+            </div>
           </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label style="font-weight: 700; color: #fff;">3. 家人平时的行动节奏？（帮系统把握最舒适的保护灵敏度）</label>
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 8px;">
+            <div class="choice-card selected" id="mp-BRISK" onclick="selectMobilityPace('BRISK')">
+              <div style="font-weight: 600;">🏃 步履轻快</div>
+              <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 3px;">日常活动自如，启用标准防磕碰保护</div>
+            </div>
+            <div class="choice-card" id="mp-STEADY_SLOW" onclick="selectMobilityPace('STEADY_SLOW')">
+              <div style="font-weight: 600; color: #38bdf8;">🚶 稳健慢行</div>
+              <div style="font-size: 0.73rem; color: var(--text-muted); margin-top: 3px;">起身偏缓或偶借扶手，加强“顺墙/床沿缓滑”保护</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 14px; margin-bottom: 8px;">
+          <label style="font-weight: 700; color: #fff;">4. 平时大概几点起床？（避免清晨睡懒觉时误发早安提醒）</label>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
+            <div class="choice-card" id="wh-EARLY" onclick="selectWakeHabit('EARLY')">
+              <div style="font-weight: 600;">🌅 早起型</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">约 6:00 ~ 7:00</div>
+            </div>
+            <div class="choice-card selected" id="wh-REGULAR" onclick="selectWakeHabit('REGULAR')">
+              <div style="font-weight: 600; color: var(--success);">☀️ 常规型</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">约 7:00 ~ 8:30</div>
+            </div>
+            <div class="choice-card" id="wh-LEISURE" onclick="selectWakeHabit('LEISURE')">
+              <div style="font-weight: 600;">🛌 晚起悠闲型</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted);">8:30 以后起床</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 12px; margin-top: 18px;">
+          <button class="btn btn-secondary" onclick="switchWizardStep(1)">⬅ 上一步</button>
+          <button class="btn" style="flex: 1; padding: 11px;" onclick="switchWizardStep(3)">下一步：安心联结与免打扰 ➔</button>
         </div>
       </div>
 
-      <!-- 步骤 3: 干扰勾选 -->
-      <div class="form-group" style="margin-top: 14px;">
-        <label style="font-weight: 700; color: #fff;">3. 特殊环境干扰因子</label>
-        <div style="display: flex; gap: 20px; margin-top: 6px;">
-          <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
-            <input type="checkbox" id="chk-wizard-pets" onchange="updatePlacementParamPreview()"> 🐾 该房间有猫狗等宠物在地面活动
-          </label>
-          <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer;">
-            <input type="checkbox" id="chk-wizard-water" onchange="updatePlacementParamPreview()"> 💧 附近常有洗澡淋浴水花喷溅
-          </label>
+      <!-- ==================== 第 3 步：怎么联系 (安心联结与防误扰) ==================== -->
+      <div class="wizard-step-pane" id="wiz-pane-3">
+        <div class="form-group">
+          <label style="font-weight: 700; color: #fff;">1. 贴心防误扰设置（把控制权留给家里的长辈）</label>
+          <div style="background: #0f172a; border: 1px solid var(--card-border); border-radius: 10px; padding: 12px 14px; margin-top: 8px;">
+            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; color: #f8fafc; font-weight: 600; margin-bottom: 0;">
+              <input type="checkbox" id="chk-gentle-challenge" checked onchange="updatePlacementParamPreview()" style="margin-top: 4px;">
+              <div>
+                <div>🔔 疑似磕碰时，先发出轻柔确认提示音（推荐开启）</div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: normal; margin-top: 4px; line-height: 1.45;">
+                  遇到捡东西、坐地穿鞋等小动静时，设备会先轻声询问，家里人<strong>挥挥手、走动一下或按一下取消键</strong>即可立刻解除，不会动辄给远方家人发警报添乱。
+                </div>
+              </div>
+            </label>
+          </div>
         </div>
-      </div>
 
-      <!-- 算法调优参数即时预览 -->
-      <div style="background: #0f172a; border: 1px dashed var(--card-border); border-radius: 8px; padding: 12px 14px; margin-top: 14px; font-size: 0.82rem;">
-        <div style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">⚡ 算法模型已自动推导最优超参数:</div>
-        <div id="wizard-param-preview" style="color: #cbd5e1; line-height: 1.6;">
-          跌倒冲击阈值: 2.10 | 倒地静止确认: 4.0秒 | 宠物SPR过滤: 30% | 客厅大开间多径适应
+        <div class="form-group" style="margin-top: 14px;">
+          <label style="font-weight: 700; color: #fff;">2. 手机微信守护提醒绑定（选填，也可稍后在设置页填写）</label>
+          <div style="display: flex; gap: 8px; margin-top: 6px;">
+            <input type="text" id="inp-wizard-pushplus" placeholder="填入微信 PushPlus Token（留空则仅在本地控制台提醒）" style="flex: 1;">
+            <button class="btn btn-secondary" style="white-space: nowrap; font-size: 0.82rem;" onclick="sendOnboardingTestPush()">📲 发条平安测试</button>
+          </div>
+          <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 5px;">
+            💡 提示：点击「发条平安测试」，手机收到一条温和的报平安消息即代表联结成功。
+          </div>
         </div>
-      </div>
 
-      <div style="display: flex; gap: 12px; margin-top: 20px;">
-        <button class="btn" style="flex: 1; padding: 12px; font-size: 0.95rem;" onclick="submitSavePlacement()">🚀 确认保存并启动 5 秒环境底噪自校准</button>
-        <button class="btn btn-secondary" onclick="closePlacementModal()">暂不设置</button>
+        <!-- 温暖生活化的专属方案预览 -->
+        <div style="background: #0f172a; border: 1px dashed #38bdf8; border-radius: 10px; padding: 12px 14px; margin-top: 14px; font-size: 0.84rem;">
+          <div style="font-weight: 600; color: #38bdf8; margin-bottom: 4px;">💝 已为您生成的专属守护方案：</div>
+          <div id="wizard-param-preview" style="color: #e2e8f0; line-height: 1.6;">
+            ✨ 已为【家里长辈】定制【客厅】守护方案：客厅宽敞空间与窗帘微动防误扰、疑似磕碰先发轻柔提示音（挥手即可取消）
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 12px; margin-top: 18px;">
+          <button class="btn btn-secondary" onclick="switchWizardStep(2)">⬅ 上一步</button>
+          <button class="btn" style="flex: 1; padding: 12px; font-size: 0.95rem; background: var(--success);" onclick="submitSavePlacement()">✅ 开启安心守护（5 秒环境自适应）</button>
+        </div>
       </div>
     </div>
   </div>
@@ -718,14 +844,38 @@ http://100.x.x.x:8080
     let selectedRoomType = 'LIVING_ROOM';
     let selectedRoomName = '客厅';
     let selectedMountHeight = 'MID_DESK';
+    let selectedLivingArrangement = 'SOLO';
+    let selectedMobilityPace = 'BRISK';
+    let selectedWakeHabit = 'REGULAR';
+    let currentWizardStep = 1;
 
     function openPlacementModal() {
+      switchWizardStep(1);
       document.getElementById('modal-placement-wizard').classList.add('active');
       updatePlacementParamPreview();
     }
 
     function closePlacementModal() {
       document.getElementById('modal-placement-wizard').classList.remove('active');
+    }
+
+    function switchWizardStep(step) {
+      currentWizardStep = step;
+      for (let i = 1; i <= 3; i++) {
+        const pill = document.getElementById('wiz-pill-' + i);
+        const pane = document.getElementById('wiz-pane-' + i);
+        if (pill) pill.classList.toggle('active', i === step);
+        if (pane) pane.classList.toggle('active', i === step);
+      }
+      updatePlacementParamPreview();
+    }
+
+    function setQuickNickname(name) {
+      const inp = document.getElementById('inp-care-nickname');
+      if (inp) {
+        inp.value = name;
+        updatePlacementParamPreview();
+      }
     }
 
     function selectRoomType(type, name) {
@@ -745,38 +895,104 @@ http://100.x.x.x:8080
       updatePlacementParamPreview();
     }
 
+    function selectLivingArrangement(val) {
+      selectedLivingArrangement = val;
+      ['SOLO', 'COHABIT'].forEach(k => {
+        const el = document.getElementById('lc-' + k);
+        if (el) el.classList.toggle('selected', k === val);
+      });
+      updatePlacementParamPreview();
+    }
+
+    function selectMobilityPace(val) {
+      selectedMobilityPace = val;
+      ['BRISK', 'STEADY_SLOW'].forEach(k => {
+        const el = document.getElementById('mp-' + k);
+        if (el) el.classList.toggle('selected', k === val);
+      });
+      updatePlacementParamPreview();
+    }
+
+    function selectWakeHabit(val) {
+      selectedWakeHabit = val;
+      ['EARLY', 'REGULAR', 'LEISURE'].forEach(k => {
+        const el = document.getElementById('wh-' + k);
+        if (el) el.classList.toggle('selected', k === val);
+      });
+      updatePlacementParamPreview();
+    }
+
     function updatePlacementParamPreview() {
       const hasPets = document.getElementById('chk-wizard-pets').checked;
       const hasWater = document.getElementById('chk-wizard-water').checked;
-      let spike = 2.1;
-      let still = 4.0;
-      let note = '客厅大开间多径适应';
+      const nickname = (document.getElementById('inp-care-nickname').value || '家里长辈').trim();
+      const gentleChallenge = document.getElementById('chk-gentle-challenge').checked;
 
+      const features = [];
       if (selectedRoomType === 'BATHROOM') {
-        spike = 1.15; still = 3.0;
-        note = '卫生间极速防滑响应 (静止3秒极速确诊，水流去噪激活)';
+        features.push('卫浴防滑重点关照与花洒水流免误扰');
       } else if (selectedRoomType === 'BEDROOM') {
-        spike = 1.40; still = 4.5;
-        note = '卧室床铺避让 (地面高度门限0.30m，起卧微动敏感)';
+        features.push('床边起夜贴心保护（床上翻身坐卧不误报）');
       } else if (selectedRoomType === 'KITCHEN') {
-        spike = 1.85; still = 3.8;
-        note = '厨房金属电器抗反弹阻尼';
+        features.push('厨房家电反射自动过滤');
       } else if (selectedRoomType === 'CORRIDOR') {
-        spike = 1.60; still = 3.5;
-        note = '走廊直行通道快速响应';
+        features.push('走廊过道快速通行感知');
+      } else {
+        features.push('客厅宽敞空间与窗帘微动防误扰');
       }
 
-      if (selectedMountHeight === 'LOW') spike = (spike * 1.15).toFixed(2);
-      if (selectedMountHeight === 'HIGH_CEILING') spike = (spike * 0.95).toFixed(2);
+      if (selectedMobilityPace === 'STEADY_SLOW') {
+        features.push('开启「稳健慢行」顺墙/床沿缓跌高敏保护');
+      }
+      if (selectedLivingArrangement === 'COHABIT') {
+        features.push('双人/多人同住起居节奏适配');
+      }
+      if (selectedWakeHabit === 'EARLY') {
+        features.push('早安关怀设定在 06:30 起床习惯');
+      } else if (selectedWakeHabit === 'LEISURE') {
+        features.push('晚起悠闲型免清晨误扰（09:00 后）');
+      }
+      if (hasPets) {
+        features.push('猫狗地面走动免打扰');
+      }
+      if (hasWater && selectedRoomType !== 'BATHROOM') {
+        features.push('水花水雾波动抑制');
+      }
+      if (gentleChallenge) {
+        features.push('疑似磕碰先发轻柔提示音（挥手即可取消）');
+      }
 
-      const spr = hasPets ? '50% (严格猫狗过滤)' : '30% (标准人体过滤)';
-      document.getElementById('wizard-param-preview').innerText = 
-        `冲击阈值: ${spike} | 倒地静止确认: ${still}秒 | 宠物SPR: ${spr} | 场景策略: ${note}`;
+      document.getElementById('wizard-param-preview').innerText =
+        `✨ 已为【${nickname}】定制【${selectedRoomName}】守护方案：` + features.join('、');
+    }
+
+    function sendOnboardingTestPush() {
+      const token = (document.getElementById('inp-wizard-pushplus').value || '').trim();
+      const nickname = (document.getElementById('inp-care-nickname').value || '家里长辈').trim();
+      fetch('/api/onboarding/test_push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pushplus_token: token,
+          care_nickname: nickname,
+          room_name: selectedRoomName
+        })
+      })
+      .then(r => r.json())
+      .then(d => {
+        alert('💌 ' + (d.message || '平安测试消息已发出，请查看手机！'));
+      })
+      .catch(err => {
+        alert('发送测试消息异常: ' + err);
+      });
     }
 
     function submitSavePlacement() {
       const hasPets = document.getElementById('chk-wizard-pets').checked;
       const hasWater = document.getElementById('chk-wizard-water').checked;
+      const nickname = (document.getElementById('inp-care-nickname').value || '家里长辈').trim();
+      const gentleChallenge = document.getElementById('chk-gentle-challenge').checked;
+      const pushToken = (document.getElementById('inp-wizard-pushplus').value || '').trim();
 
       fetch('/api/placement/save', {
         method: 'POST',
@@ -786,13 +1002,22 @@ http://100.x.x.x:8080
           room_name: selectedRoomName,
           mount_height: selectedMountHeight,
           has_pets: hasPets,
-          has_water_splash: hasWater
+          has_water_splash: hasWater,
+          care_nickname: nickname,
+          living_arrangement: selectedLivingArrangement,
+          mobility_pace: selectedMobilityPace,
+          wake_habit: selectedWakeHabit,
+          enable_gentle_challenge: gentleChallenge,
+          pushplus_token: pushToken
         })
       })
       .then(r => r.json())
       .then(d => {
         if (d.success) {
-          alert('✅ ' + d.message);
+          if (pushToken && document.getElementById('cfg-pushplus')) {
+            document.getElementById('cfg-pushplus').value = pushToken;
+          }
+          alert('🏡 ' + d.message);
           closePlacementModal();
           checkPlacementStatus();
         } else {
@@ -809,11 +1034,35 @@ http://100.x.x.x:8080
         .then(r => r.json())
         .then(d => {
           const cfg = d.config || {};
-          document.getElementById('header-room-name').innerText = cfg.room_name || '客厅';
-          document.getElementById('current-room-text').innerText = cfg.room_name || '客厅';
-          if (d.tuned_parameters && d.tuned_parameters.description) {
-            document.getElementById('current-room-desc').innerText = d.tuned_parameters.description;
+          const nickname = cfg.care_nickname || '家里长辈';
+          const rName = cfg.room_name || '客厅';
+          document.getElementById('header-room-name').innerText = `${rName} · ${nickname}`;
+          document.getElementById('current-room-text').innerText = `${rName}（守护对象：${nickname}）`;
+
+          if (d.tuned_parameters) {
+            document.getElementById('current-room-desc').innerText =
+              d.tuned_parameters.friendly_summary || d.tuned_parameters.description || '';
           }
+
+          // 同步回填已保存的向导选项
+          if (cfg.room_type) selectRoomType(cfg.room_type, rName);
+          if (cfg.mount_height) selectMountHeight(cfg.mount_height);
+          if (cfg.living_arrangement) selectLivingArrangement(cfg.living_arrangement);
+          if (cfg.mobility_pace) selectMobilityPace(cfg.mobility_pace);
+          if (cfg.wake_habit) selectWakeHabit(cfg.wake_habit);
+          if (cfg.care_nickname && document.getElementById('inp-care-nickname')) {
+            document.getElementById('inp-care-nickname').value = cfg.care_nickname;
+          }
+          if (typeof cfg.has_pets === 'boolean' && document.getElementById('chk-wizard-pets')) {
+            document.getElementById('chk-wizard-pets').checked = cfg.has_pets;
+          }
+          if (typeof cfg.has_water_splash === 'boolean' && document.getElementById('chk-wizard-water')) {
+            document.getElementById('chk-wizard-water').checked = cfg.has_water_splash;
+          }
+          if (typeof cfg.enable_gentle_challenge === 'boolean' && document.getElementById('chk-gentle-challenge')) {
+            document.getElementById('chk-gentle-challenge').checked = cfg.enable_gentle_challenge;
+          }
+          updatePlacementParamPreview();
 
           // 若首次安装尚未配置，自动弹窗向导引导用户设置！
           if (!d.is_configured) {
