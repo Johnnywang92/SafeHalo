@@ -8,6 +8,7 @@ mod detector;
 mod dsp;
 mod inspector;
 mod json;
+mod object_confirm;
 mod pet;
 
 use std::fs::File;
@@ -20,6 +21,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use calibrator::{CalSummary, Calibrator};
 use detector::{Detector, HumanState, TraceEvent};
 use dsp::{Extractor, NeighborFilter, SignalFilter};
+use object_confirm::{DEFAULT_CV_THRESHOLD, MIN_INTERVALS};
 
 struct Args {
     replay: Option<String>,
@@ -41,6 +43,9 @@ struct Args {
     stillness_secs: f64,
     window: usize,
     rssi_floor: i32,
+    object_confirm_secs: f64,
+    object_confirm_cv: f64,
+    object_confirm_min_intervals: usize,
 }
 
 fn usage() -> ! {
@@ -60,6 +65,9 @@ fn usage() -> ! {
          \x20 --stillness-secs N      targeted inspection duration (default 5.0)\n\
          \x20 --window N              feature window frames (default 30)\n\
          \x20 --rssi-floor N          weak-signal floor dBm (default -72)\n\
+         \x20 --object-confirm-secs N stage-2 OBJECT confirmation window, 0 disables (default 0)\n\
+         \x20 --object-confirm-cv N   max regular peak-interval CV, placeholder (default 0.35)\n\
+         \x20 --object-confirm-min-intervals N  min intervals for a stage-2 verdict (default 3)\n\
          \x20 --serial DEV            read CSI lines from serial device (e.g. /dev/ttyUSB0)\n\
          \x20 --baud N                serial baud rate (default 115200)\n\
          Graceful shutdown: --run-secs / --max-packets limits, or procd stop."
@@ -88,6 +96,9 @@ fn parse_args() -> Args {
         stillness_secs: 5.0,
         window: 30,
         rssi_floor: -72,
+        object_confirm_secs: 0.0,
+        object_confirm_cv: DEFAULT_CV_THRESHOLD,
+        object_confirm_min_intervals: MIN_INTERVALS,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -117,6 +128,11 @@ fn parse_args() -> Args {
             "--stillness-secs" => a.stillness_secs = need().parse().unwrap_or_else(|_| usage()),
             "--window" => a.window = need().parse().unwrap_or_else(|_| usage()),
             "--rssi-floor" => a.rssi_floor = need().parse().unwrap_or_else(|_| usage()),
+            "--object-confirm-secs" => a.object_confirm_secs = need().parse().unwrap_or_else(|_| usage()),
+            "--object-confirm-cv" => a.object_confirm_cv = need().parse().unwrap_or_else(|_| usage()),
+            "--object-confirm-min-intervals" => {
+                a.object_confirm_min_intervals = need().parse().unwrap_or_else(|_| usage())
+            }
             "--help" | "-h" => usage(),
             other => {
                 eprintln!("unknown argument: {}", other);
@@ -514,6 +530,23 @@ fn trace_line(ev: &TraceEvent) -> String {
         TraceEvent::ChallengeIntercepted { ts } => {
             format!("{{\"type\":\"challenge_intercepted\",\"ts\":{}}}", ts)
         }
+        TraceEvent::ObjectWatch { ts, phase, peaks, intervals, cv } => {
+            let mut s = format!(
+                "{{\"type\":\"object_watch\",\"ts\":{},\"phase\":\"{}\"",
+                ts, phase
+            );
+            if let Some(p) = peaks {
+                s.push_str(&format!(",\"peaks\":{}", p));
+            }
+            if let Some(i) = intervals {
+                s.push_str(&format!(",\"intervals\":{}", i));
+            }
+            if let Some(c) = cv {
+                s.push_str(&format!(",\"cv\":{}", c));
+            }
+            s.push('}');
+            s
+        }
     }
 }
 
@@ -549,7 +582,14 @@ fn open_serial(path: &str, baud: u32) -> File {
 fn main() {
     let args = parse_args();
     let calibrator = Calibrator::new(&args.storage_dir);
-    let detector = Detector::new(args.calibration_secs, args.stillness_secs, calibrator);
+    let detector = Detector::new(
+        args.calibration_secs,
+        args.stillness_secs,
+        args.object_confirm_secs,
+        args.object_confirm_cv,
+        args.object_confirm_min_intervals,
+        calibrator,
+    );
     let home_clean = dsp::clean_mac(&args.home_mac);
 
     let mut p = Pipeline {

@@ -42,6 +42,16 @@ class RecordingLogger:
     def log_inspection_progress(self, stage, details, bpm=None):
         TRACE.append({"type": "inspection", "ts": CURRENT_TS, "state": stage})
 
+    def log_object_watch(self, phase, details, peaks=None, intervals=None, cv=None):
+        ev = {"type": "object_watch", "ts": CURRENT_TS, "phase": phase}
+        if peaks is not None:
+            ev["peaks"] = peaks
+        if intervals is not None:
+            ev["intervals"] = intervals
+        if cv is not None:
+            ev["cv"] = cv
+        TRACE.append(ev)
+
     def log_fall_confirmed(self, details, bpm, confidence):
         TRACE.append({"type": "fall_alarm", "ts": CURRENT_TS})
 
@@ -119,6 +129,9 @@ det = detector_mod.RouterCSIDetector(
     on_trigger_challenge=on_challenge,
     on_challenge_intercepted=on_intercepted,
     auto_calibrator=cal,
+    object_confirm_seconds=float(os.environ.get("OBJECT_CONFIRM_SECS", "0")),
+    object_confirm_cv=float(os.environ.get("OBJECT_CONFIRM_CV", "0.35")),
+    object_confirm_min_intervals=int(os.environ.get("OBJECT_CONFIRM_MIN_INTERVALS", "3")),
 )
 
 packets = parse_dropped = neighbor_rejected = accepted = features_count = 0

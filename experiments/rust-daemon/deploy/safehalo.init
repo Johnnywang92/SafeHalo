@@ -11,6 +11,7 @@ start_service() {
 
 	local enabled input udp_addr serial_dev baud http_addr storage_dir
 	local home_mac calibration_secs stillness_secs window rssi_floor api_token
+	local object_confirm_secs object_confirm_cv object_confirm_min_intervals
 	config_get_bool enabled safehalo enabled 1
 	[ "$enabled" -eq 0 ] && return 0
 
@@ -25,6 +26,9 @@ start_service() {
 	config_get stillness_secs safehalo stillness_secs 5
 	config_get window safehalo window 30
 	config_get rssi_floor safehalo rssi_floor -72
+	config_get object_confirm_secs safehalo object_confirm_secs 0
+	config_get object_confirm_cv safehalo object_confirm_cv 0.35
+	config_get object_confirm_min_intervals safehalo object_confirm_min_intervals 3
 	config_get api_token safehalo api_token ''
 
 	local token_args
@@ -56,7 +60,10 @@ start_service() {
 		--calibration-secs "$calibration_secs" \
 		--stillness-secs "$stillness_secs" \
 		--window "$window" \
-		--rssi-floor "$rssi_floor"
+		--rssi-floor "$rssi_floor" \
+		--object-confirm-secs "$object_confirm_secs" \
+		--object-confirm-cv "$object_confirm_cv" \
+		--object-confirm-min-intervals "$object_confirm_min_intervals"
 	procd_set_param respawn 3600 5 0
 	procd_set_param stdout 1
 	procd_set_param stderr 1

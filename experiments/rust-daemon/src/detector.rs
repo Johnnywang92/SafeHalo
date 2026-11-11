@@ -3,6 +3,7 @@
 use crate::calibrator::Calibrator;
 use crate::dsp::{round_n, Features};
 use crate::inspector::{InspEvent, InspState, Inspector};
+use crate::object_confirm::ObjectConfirmWatcher;
 use crate::pet::PetFilter;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -40,6 +41,7 @@ pub enum TraceEvent {
     Inspection { ts: f64, state: &'static str },
     FallAlarm { ts: f64 },
     ChallengeIntercepted { ts: f64 },
+    ObjectWatch { ts: f64, phase: &'static str, peaks: Option<u32>, intervals: Option<u32>, cv: Option<f64> },
 }
 
 pub struct Detector {
@@ -56,6 +58,10 @@ pub struct Detector {
     fall_spike_time: Option<f64>,
     pet: PetFilter,
     pub inspector: Inspector,
+    object_confirm_seconds: f64,
+    object_confirm_cv: f64,
+    object_confirm_min_intervals: usize,
+    object_watcher: Option<ObjectConfirmWatcher>,
     pending: Option<HumanState>,
     hold: u32,
     pub trace: Vec<TraceEvent>,
@@ -65,7 +71,14 @@ pub struct Detector {
 }
 
 impl Detector {
-    pub fn new(calibration_seconds: f64, stillness_seconds: f64, calibrator: Calibrator) -> Self {
+    pub fn new(
+        calibration_seconds: f64,
+        stillness_seconds: f64,
+        object_confirm_seconds: f64,
+        object_confirm_cv: f64,
+        object_confirm_min_intervals: usize,
+        calibrator: Calibrator,
+    ) -> Self {
         let base_variance = calibrator.state.base_variance;
         let base_diff = calibrator.state.base_diff;
         Detector {
@@ -82,6 +95,10 @@ impl Detector {
             fall_spike_time: None,
             pet: PetFilter::new(),
             inspector: Inspector::new(stillness_seconds),
+            object_confirm_seconds,
+            object_confirm_cv,
+            object_confirm_min_intervals,
+            object_watcher: None,
             pending: None,
             hold: 0,
             trace: Vec::new(),
@@ -120,6 +137,12 @@ impl Detector {
         let now = f.timestamp;
 
         if f.sample_rate_hz < 3.0 {
+            if self.object_watcher.take().is_some() {
+                // Samples inside a dropout are not trustworthy: abandon this watch.
+                self.trace.push(TraceEvent::ObjectWatch {
+                    ts: now, phase: "aborted", peaks: None, intervals: None, cv: None,
+                });
+            }
             if self.state != HumanState::RouterOffline {
                 self.switch(HumanState::RouterOffline, f);
             }
@@ -182,6 +205,46 @@ impl Detector {
             }
         }
 
+        // 3.5 Stage-2 object confirmation watch in progress: stay in
+        // FALL_SUSPECT (no alarm) until the long window closes. Escalation to
+        // FALL is the only allowed direction.
+        if self.state == HumanState::FallSuspect {
+            if let Some(w) = self.object_watcher.as_mut() {
+                let mut mean_amp = 0.0;
+                for a in &f.current_amplitudes {
+                    mean_amp += *a;
+                }
+                if !f.current_amplitudes.is_empty() {
+                    mean_amp /= f.current_amplitudes.len() as f64;
+                }
+                let result = w.feed(now, mean_amp);
+                if let Some(r) = result {
+                    self.object_watcher = None;
+                    if r.escalate {
+                        self.trace.push(TraceEvent::ObjectWatch {
+                            ts: now, phase: "escalate",
+                            peaks: Some(r.peaks), intervals: Some(r.intervals), cv: Some(r.cv),
+                        });
+                        self.fall_alarms += 1;
+                        self.last_fall_bpm = r.bpm;
+                        self.last_fall_confidence = 0.90;
+                        self.trace.push(TraceEvent::FallAlarm { ts: now });
+                        self.fall_spike_time = None;
+                        self.switch(HumanState::FallConfirmed, f);
+                    } else {
+                        let phase = if r.insufficient { "insufficient" } else { "confirmed" };
+                        self.trace.push(TraceEvent::ObjectWatch {
+                            ts: now, phase,
+                            peaks: Some(r.peaks), intervals: Some(r.intervals), cv: Some(r.cv),
+                        });
+                        self.fall_spike_time = None;
+                        self.switch(HumanState::Empty, f);
+                    }
+                }
+                return self.state;
+            }
+        }
+
         if self.state == HumanState::FallSuspect {
             if self.inspector.state == InspState::Standby {
                 self.inspector.trigger(now);
@@ -213,6 +276,20 @@ impl Detector {
                         return self.state;
                     }
                     InspState::VerdictObject => {
+                        if self.object_confirm_seconds > 0.0 {
+                            // Stage 1 cannot resolve enough respiration cycles;
+                            // keep FALL_SUSPECT (alarm-leaning) and watch longer.
+                            self.object_watcher = Some(ObjectConfirmWatcher::new(
+                                now,
+                                self.object_confirm_seconds,
+                                self.object_confirm_cv,
+                                self.object_confirm_min_intervals,
+                            ));
+                            self.trace.push(TraceEvent::ObjectWatch {
+                                ts: now, phase: "start", peaks: None, intervals: None, cv: None,
+                            });
+                            return self.state;
+                        }
                         self.fall_spike_time = None;
                         self.switch(HumanState::Empty, f);
                         return self.state;
