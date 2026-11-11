@@ -38,6 +38,18 @@ impl Json {
             _ => None,
         }
     }
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Json::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+    pub fn as_obj(&self) -> Option<&Vec<(String, Json)>> {
+        match self {
+            Json::Obj(v) => Some(v),
+            _ => None,
+        }
+    }
 }
 
 pub fn escape(s: &str) -> String {
@@ -54,6 +66,36 @@ pub fn escape(s: &str) -> String {
         }
     }
     out
+}
+
+pub fn write(v: &Json) -> String {
+    match v {
+        Json::Null => "null".into(),
+        Json::Bool(b) => b.to_string(),
+        Json::Num(n) => {
+            if n.is_finite() {
+                if n.fract() == 0.0 && n.abs() < 1e15 {
+                    format!("{}", *n as i64)
+                } else {
+                    format!("{}", n)
+                }
+            } else {
+                "null".into()
+            }
+        }
+        Json::Str(s) => format!("\"{}\"", escape(s)),
+        Json::Arr(items) => {
+            let body: Vec<String> = items.iter().map(write).collect();
+            format!("[{}]", body.join(","))
+        }
+        Json::Obj(entries) => {
+            let body: Vec<String> = entries
+                .iter()
+                .map(|(k, val)| format!("\"{}\":{}", escape(k), write(val)))
+                .collect();
+            format!("{{{}}}", body.join(","))
+        }
+    }
 }
 
 pub fn parse(s: &str) -> Option<Json> {

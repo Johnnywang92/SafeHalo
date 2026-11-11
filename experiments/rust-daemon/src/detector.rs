@@ -39,7 +39,7 @@ pub enum TraceEvent {
     Burst { ts: f64, rate: u32 },
     Challenge { ts: f64 },
     Inspection { ts: f64, state: &'static str },
-    FallAlarm { ts: f64 },
+    FallAlarm { ts: f64, bpm: f64, confidence: f64 },
     ChallengeIntercepted { ts: f64 },
     ObjectWatch { ts: f64, phase: &'static str, peaks: Option<u32>, intervals: Option<u32>, cv: Option<f64> },
 }
@@ -131,6 +131,37 @@ impl Detector {
                 }
             }
         }
+    }
+
+    /// Control-plane entry used by the web console's manual inspection.
+    pub fn force_inspect(&mut self, ts: f64) {
+        if self.object_watcher.take().is_some() {
+            self.trace.push(TraceEvent::ObjectWatch {
+                ts,
+                phase: "aborted",
+                peaks: None,
+                intervals: None,
+                cv: None,
+            });
+        }
+        if self.state != HumanState::FallSuspect {
+            let old = self.state;
+            self.state = HumanState::FallSuspect;
+            self.state_start_time = ts;
+            self.trace.push(TraceEvent::StateChange {
+                ts,
+                from: old.name(),
+                to: "FALL_SUSPECT",
+                variance: 0.0,
+                diff_energy: 0.0,
+            });
+        }
+        self.fall_spike_time = Some(ts);
+        self.inspector.trigger(ts);
+    }
+
+    pub fn acknowledge_safe(&mut self) {
+        self.inspector.acknowledge_safe();
     }
 
     pub fn update(&mut self, f: &Features) -> HumanState {
@@ -228,7 +259,11 @@ impl Detector {
                         self.fall_alarms += 1;
                         self.last_fall_bpm = r.bpm;
                         self.last_fall_confidence = 0.90;
-                        self.trace.push(TraceEvent::FallAlarm { ts: now });
+                        self.trace.push(TraceEvent::FallAlarm {
+                            ts: now,
+                            bpm: r.bpm,
+                            confidence: 0.90,
+                        });
                         self.fall_spike_time = None;
                         self.switch(HumanState::FallConfirmed, f);
                     } else {
@@ -263,7 +298,11 @@ impl Detector {
                         self.fall_alarms += 1;
                         self.last_fall_bpm = v.respiration_bpm;
                         self.last_fall_confidence = v.confidence;
-                        self.trace.push(TraceEvent::FallAlarm { ts: now });
+                        self.trace.push(TraceEvent::FallAlarm {
+                            ts: now,
+                            bpm: v.respiration_bpm,
+                            confidence: v.confidence,
+                        });
                         self.switch(HumanState::FallConfirmed, f);
                         return self.state;
                     }

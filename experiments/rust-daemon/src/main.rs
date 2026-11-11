@@ -1,27 +1,42 @@
-// SafeHalo Rust resident-daemon prototype.
-// Inputs: --replay FILE | --udp ADDR:PORT | --stdin
-// Outputs: HTTP JSON (/api/ha/status, /api/state, /api/neighbor_spectrum),
-//          optional --trace JSONL and --snapshot JSON for equivalence testing.
+// SafeHalo Rust standalone resident daemon.
+// Inputs: --replay FILE | --udp ADDR:PORT | --serial DEV|auto | --stdin
+// Outputs: static web console + JSON API + SSE (/api/events/stream), serial
+//          actuation, incident persistence and notification fan-out.
+// Equivalence outputs (--trace / --snapshot) stay byte-identical to the
+// pre-service daemon.
 
+mod auth;
 mod calibrator;
 mod detector;
 mod dsp;
+mod events;
+mod http;
+mod incidents;
 mod inspector;
 mod json;
+mod notify;
 mod object_confirm;
 mod pet;
+mod serial;
+mod state;
+mod timefmt;
 
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream, UdpSocket};
-use std::os::unix::fs::OpenOptionsExt;
-use std::sync::{Arc, Mutex};
+use std::io::{BufRead, BufReader, Write};
+use std::net::UdpSocket;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use calibrator::{CalSummary, Calibrator};
+use auth::AuthManager;
+use calibrator::Calibrator;
 use detector::{Detector, HumanState, TraceEvent};
 use dsp::{Extractor, NeighborFilter, SignalFilter};
+use events::EventLog;
+use http::HttpConfig;
+use incidents::IncidentStore;
+use notify::{Notice, NotifyConfig, Notifier};
 use object_confirm::{DEFAULT_CV_THRESHOLD, MIN_INTERVALS};
+use state::{snapshot_neighbor, Bus, Placement, Shared};
 
 struct Args {
     replay: Option<String>,
@@ -34,6 +49,7 @@ struct Args {
     no_http: bool,
     api_token: String,
     storage_dir: String,
+    data_dir: String,
     trace: Option<String>,
     snapshot: Option<String>,
     run_secs: f64,
@@ -46,16 +62,29 @@ struct Args {
     object_confirm_secs: f64,
     object_confirm_cv: f64,
     object_confirm_min_intervals: usize,
+    room_name: String,
+    challenge_enabled: Option<bool>,
+    household_id: String,
+    web_html: Option<String>,
+    pushplus_token: String,
+    serverchan_key: String,
+    notify_webhook: String,
+    ha_webhook: String,
+    sms_webhook: String,
+    miniprogram_url: String,
+    miniprogram_token: String,
+    notify_timeout: Option<u64>,
 }
 
 fn usage() -> ! {
     eprintln!(
-        "SafeHalo Rust daemon prototype\n\
-         Usage: safehalo-daemon [--replay FILE [--replay-rate N]] | [--udp ADDR:PORT] | [--serial DEV [--baud N]] | [--stdin]\n\
+        "SafeHalo Rust daemon\n\
+         Usage: safehalo-daemon [--replay FILE [--replay-rate N]] | [--udp ADDR:PORT] | [--serial DEV|auto [--baud N]] | [--stdin]\n\
          \x20 --http ADDR:PORT        HTTP listen address (default 127.0.0.1:8091)\n\
-         \x20 --no-http               disable HTTP server\n\
-         \x20 --api-token TOKEN       require ?token= or Bearer auth on all HTTP endpoints (default off)\n\
-         \x20 --storage-dir DIR       baseline model directory (default ./daemon-storage)\n\
+         \x20 --no-http               disable the web service\n\
+         \x20 --api-token TOKEN       machine token; grants admin on Bearer/query auth (default off)\n\
+         \x20 --storage-dir DIR       model / incidents / events / notifier storage (default ./daemon-storage)\n\
+         \x20 --data-dir DIR          user database directory (default ./data)\n\
          \x20 --trace FILE            write state/inspector event trace (JSONL)\n\
          \x20 --snapshot FILE         write final snapshot (JSON)\n\
          \x20 --run-secs N            stop after N wall seconds (0 = unlimited)\n\
@@ -66,10 +95,22 @@ fn usage() -> ! {
          \x20 --window N              feature window frames (default 30)\n\
          \x20 --rssi-floor N          weak-signal floor dBm (default -72)\n\
          \x20 --object-confirm-secs N stage-2 OBJECT confirmation window, 0 disables (default 0)\n\
-         \x20 --object-confirm-cv N   max regular peak-interval CV, placeholder (default 0.35)\n\
+         \x20 --object-confirm-cv N   max regular peak-interval CV (default 0.35)\n\
          \x20 --object-confirm-min-intervals N  min intervals for a stage-2 verdict (default 3)\n\
-         \x20 --serial DEV            read CSI lines from serial device (e.g. /dev/ttyUSB0)\n\
-         \x20 --baud N                serial baud rate (default 115200)\n\
+         \x20 --serial DEV            serial CSI input; DEV=auto discovers /dev/ttyUSB*/ttyACM*/cu.*\n\
+         \x20 --baud N                serial baud rate (default 921600)\n\
+         \x20 --room-name NAME        override the monitored room name\n\
+         \x20 --challenge-enabled N   enable the gentle challenge beep (1/0; default from placement)\n\
+         \x20 --household-id ID       household identifier used in incident records (default H01)\n\
+         \x20 --web-html FILE         override the embedded console HTML\n\
+         \x20 --pushplus-token T      PushPlus channel token\n\
+         \x20 --serverchan-key K      ServerChan send key\n\
+         \x20 --notify-webhook URL    generic webhook endpoint\n\
+         \x20 --ha-webhook URL        Home Assistant webhook endpoint\n\
+         \x20 --sms-webhook URL       SMS gateway webhook endpoint\n\
+         \x20 --miniprogram-url URL   mini-program backend endpoint\n\
+         \x20 --miniprogram-token T   mini-program bearer token\n\
+         \x20 --notify-timeout N      notification HTTP timeout seconds (default 5)\n\
          Graceful shutdown: --run-secs / --max-packets limits, or procd stop."
     );
     std::process::exit(2);
@@ -81,12 +122,13 @@ fn parse_args() -> Args {
         replay_rate: 0.0,
         udp: None,
         serial: None,
-        baud: 115200,
+        baud: 921600,
         stdin: false,
         http: "127.0.0.1:8091".into(),
         no_http: false,
         api_token: String::new(),
         storage_dir: "daemon-storage".into(),
+        data_dir: "data".into(),
         trace: None,
         snapshot: None,
         run_secs: 0.0,
@@ -99,6 +141,18 @@ fn parse_args() -> Args {
         object_confirm_secs: 0.0,
         object_confirm_cv: DEFAULT_CV_THRESHOLD,
         object_confirm_min_intervals: MIN_INTERVALS,
+        room_name: String::new(),
+        challenge_enabled: None,
+        household_id: "H01".into(),
+        web_html: None,
+        pushplus_token: String::new(),
+        serverchan_key: String::new(),
+        notify_webhook: String::new(),
+        ha_webhook: String::new(),
+        sms_webhook: String::new(),
+        miniprogram_url: String::new(),
+        miniprogram_token: String::new(),
+        notify_timeout: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -119,6 +173,7 @@ fn parse_args() -> Args {
             "--no-http" => a.no_http = true,
             "--api-token" => a.api_token = need(),
             "--storage-dir" => a.storage_dir = need(),
+            "--data-dir" => a.data_dir = need(),
             "--trace" => a.trace = Some(need()),
             "--snapshot" => a.snapshot = Some(need()),
             "--run-secs" => a.run_secs = need().parse().unwrap_or_else(|_| usage()),
@@ -133,6 +188,21 @@ fn parse_args() -> Args {
             "--object-confirm-min-intervals" => {
                 a.object_confirm_min_intervals = need().parse().unwrap_or_else(|_| usage())
             }
+            "--room-name" => a.room_name = need(),
+            "--challenge-enabled" => {
+                let v: i64 = need().parse().unwrap_or_else(|_| usage());
+                a.challenge_enabled = Some(v != 0);
+            }
+            "--household-id" => a.household_id = need(),
+            "--web-html" => a.web_html = Some(need()),
+            "--pushplus-token" => a.pushplus_token = need(),
+            "--serverchan-key" => a.serverchan_key = need(),
+            "--notify-webhook" => a.notify_webhook = need(),
+            "--ha-webhook" => a.ha_webhook = need(),
+            "--sms-webhook" => a.sms_webhook = need(),
+            "--miniprogram-url" => a.miniprogram_url = need(),
+            "--miniprogram-token" => a.miniprogram_token = need(),
+            "--notify-timeout" => a.notify_timeout = Some(need().parse().unwrap_or_else(|_| usage())),
             "--help" | "-h" => usage(),
             other => {
                 eprintln!("unknown argument: {}", other);
@@ -152,232 +222,6 @@ fn wall_now() -> f64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
-}
-
-struct NeighborSnap {
-    purity: f64,
-    health: String,
-    advice: String,
-    total: u64,
-    accepted: u64,
-    rejected: u64,
-    node_count: usize,
-    top: Vec<(String, u64, i32, f64, String)>,
-}
-
-fn snapshot_neighbor(nf: &NeighborFilter) -> NeighborSnap {
-    let (purity, health, advice, order) = nf.spectrum_analysis();
-    NeighborSnap {
-        purity,
-        health,
-        advice,
-        total: nf.total_inspected,
-        accepted: nf.accepted,
-        rejected: nf.rejected,
-        node_count: nf.registry.len(),
-        top: order
-            .iter()
-            .map(|&i| {
-                let e = &nf.registry[i];
-                (e.bssid.clone(), e.packet_count, e.max_rssi, dsp::round1(e.avg_rssi), e.rejection_reason.clone())
-            })
-            .collect(),
-    }
-}
-
-struct Shared {
-    state: String,
-    is_pet: bool,
-    variance: f64,
-    sample_rate: f64,
-    jitter: f64,
-    diff_energy: f64,
-    spike_ratio: f64,
-    burst_rate: u32,
-    base_variance: f64,
-    base_diff: f64,
-    last_fall_bpm: f64,
-    last_fall_confidence: f64,
-    packets: u64,
-    parse_dropped: u64,
-    neighbor_rejected: u64,
-    accepted: u64,
-    features: u64,
-    fall_alarms: u64,
-    transitions: u64,
-    home_mac: String,
-    neighbor: NeighborSnap,
-    calib: CalSummary,
-}
-
-fn neighbor_json(n: &NeighborSnap, home: &str) -> String {
-    let top: Vec<String> = n
-        .top
-        .iter()
-        .map(|(bssid, count, max_rssi, avg, reason)| {
-            format!(
-                "{{\"bssid\":\"{}\",\"packets_intercepted\":{},\"max_rssi_dbm\":{},\"avg_rssi_dbm\":{},\"reason\":\"{}\"}}",
-                json::escape(bssid), count, max_rssi, avg, json::escape(reason)
-            )
-        })
-        .collect();
-    format!(
-        "{{\"channel_purity_percent\":{},\"health_level\":\"{}\",\"home_mac_whitelist\":[\"{}\"],\"total_inspected\":{},\"accepted_home_packets\":{},\"rejected_neighbor_packets\":{},\"neighbor_nodes_detected\":{},\"top_interfering_neighbors\":[{}],\"channel_advice\":\"{}\"}}",
-        n.purity,
-        json::escape(&n.health),
-        json::escape(home),
-        n.total,
-        n.accepted,
-        n.rejected,
-        n.node_count,
-        top.join(","),
-        json::escape(&n.advice)
-    )
-}
-
-fn calib_json(c: &CalSummary) -> String {
-    format!(
-        "{{\"base_variance\":{},\"base_diff\":{},\"learning_days\":{},\"quiet_windows_learned\":{},\"maturity_percent\":{},\"boot_contamination_rejected\":{},\"drift_adaptations_count\":{},\"last_updated\":\"{}\"}}",
-        c.base_variance,
-        c.base_diff,
-        c.learning_days,
-        c.quiet_windows_learned,
-        c.maturity_percent,
-        c.boot_contamination_rejected,
-        c.drift_adaptations_count,
-        json::escape(&c.last_updated)
-    )
-}
-
-fn ha_json(s: &Shared) -> String {
-    let fall = s.state == "FALL_CONFIRMED";
-    let presence = s.state != "EMPTY" && s.state != "CALIBRATING";
-    let motion = s.state == "MOVING";
-    format!(
-        "{{\"fall_detected\":{},\"presence\":{},\"motion\":{},\"pet_activity\":{},\"human_state\":\"{}\",\"fused_state\":\"{}\",\"radar_height_m\":0.0,\"respiration_bpm\":0.0,\"confidence\":1.0,\"decision_reason\":\"CSI-only Rust daemon prototype\",\"routine_has_anomaly\":false,\"wake_time\":\"\",\"bed_time\":\"\",\"night_restless_count\":0}}",
-        fall, presence, motion, s.is_pet, s.state, s.state
-    )
-}
-
-fn counters_json(s: &Shared) -> String {
-    format!(
-        "{{\"packets\":{},\"parse_dropped\":{},\"neighbor_rejected\":{},\"accepted\":{},\"features\":{},\"fall_alarms\":{},\"transitions\":{}}}",
-        s.packets, s.parse_dropped, s.neighbor_rejected, s.accepted, s.features, s.fall_alarms, s.transitions
-    )
-}
-
-fn state_json(s: &Shared) -> String {
-    format!(
-        "{{\"state\":\"{}\",\"variance\":{},\"sample_rate\":{},\"jitter\":{},\"is_pet\":{},\"diff_energy\":{},\"spike_ratio\":{},\"burst_rate_hz\":{},\"base_variance\":{},\"base_diff\":{},\"last_fall\":{{\"bpm\":{},\"confidence\":{}}},\"counters\":{},\"neighbor_filter\":{},\"auto_calibration\":{}}}",
-        s.state,
-        s.variance,
-        s.sample_rate,
-        s.jitter,
-        s.is_pet,
-        s.diff_energy,
-        s.spike_ratio,
-        s.burst_rate,
-        s.base_variance,
-        s.base_diff,
-        s.last_fall_bpm,
-        s.last_fall_confidence,
-        counters_json(s),
-        neighbor_json(&s.neighbor, &s.home_mac),
-        calib_json(&s.calib)
-    )
-}
-
-fn snapshot_json(s: &Shared) -> String {
-    format!(
-        "{{\"final_state\":\"{}\",\"counters\":{},\"base_variance\":{},\"base_diff\":{},\"auto_calibration\":{},\"neighbor_filter\":{}}}",
-        s.state,
-        counters_json(s),
-        s.base_variance,
-        s.base_diff,
-        calib_json(&s.calib),
-        neighbor_json(&s.neighbor, &s.home_mac)
-    )
-}
-
-fn handle_conn(mut st: TcpStream, shared: &Arc<Mutex<Shared>>, token: &str) {
-    st.set_read_timeout(Some(Duration::from_millis(1000))).ok();
-    let mut data: Vec<u8> = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        match st.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                data.extend_from_slice(&buf[..n]);
-                if data.windows(4).any(|w| w == b"\r\n\r\n") || data.len() > 16384 {
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
-    }
-    let req = String::from_utf8_lossy(&data);
-    let req_line = req.lines().next().unwrap_or("");
-    let path_full = req_line.split_whitespace().nth(1).unwrap_or("/");
-    let path = path_full.split('?').next().unwrap_or("/");
-    let s = shared.lock().unwrap();
-    if !token.is_empty() {
-        let query_ok = path_full
-            .split('?')
-            .nth(1)
-            .map(|q| {
-                q.split('&').any(|kv| {
-                    let mut it = kv.splitn(2, '=');
-                    it.next() == Some("token") && it.next() == Some(token)
-                })
-            })
-            .unwrap_or(false);
-        let bearer_ok = req.lines().any(|l| {
-            if !l.to_ascii_lowercase().starts_with("authorization:") {
-                return false;
-            }
-            let value = l.splitn(2, ':').nth(1).unwrap_or("").trim();
-            value == format!("Bearer {}", token) || value == token
-        });
-        if !query_ok && !bearer_ok {
-            let body = "{\"error\":\"unauthorized\"}";
-            let resp = format!(
-                "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = st.write_all(resp.as_bytes());
-            return;
-        }
-    }
-    let (status, body) = match path {
-        "/api/ha/status" => (200, ha_json(&s)),
-        "/api/state" => (200, state_json(&s)),
-        "/api/neighbor_spectrum" => (200, neighbor_json(&s.neighbor, &s.home_mac)),
-        "/" => (200, "SafeHalo Rust daemon prototype OK\n".to_string()),
-        _ => (404, "{\"error\":\"not found\"}".to_string()),
-    };
-    let reason = if status == 200 { "OK" } else { "Not Found" };
-    let resp = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        status, reason, body.len(), body
-    );
-    let _ = st.write_all(resp.as_bytes());
-}
-
-fn serve(addr: String, shared: Arc<Mutex<Shared>>, token: String) {
-    let listener = match TcpListener::bind(&addr) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("[http] bind {} failed: {}", addr, e);
-            return;
-        }
-    };
-    eprintln!("[http] listening on http://{}/", addr);
-    for stream in listener.incoming() {
-        if let Ok(st) = stream {
-            handle_conn(st, &shared, &token);
-        }
-    }
 }
 
 // std does not expose socket buffer sizing; call setsockopt directly.
@@ -404,9 +248,8 @@ mod sockopt {
 
     pub fn set_udp_recv_buffer(sock: &UdpSocket, bytes: i32) -> Option<i32> {
         let fd = sock.as_raw_fd();
-        let rc = unsafe {
-            setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bytes as *const i32 as *const c_void, 4)
-        };
+        let rc =
+            unsafe { setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bytes as *const i32 as *const c_void, 4) };
         if rc != 0 {
             return None;
         }
@@ -436,7 +279,40 @@ struct Pipeline {
     trace_len: usize,
 }
 
-fn process_line(line: &str, p: &mut Pipeline, shared: &Arc<Mutex<Shared>>) {
+enum Action {
+    Burst(u32),
+    Challenge,
+    Alarm { bpm: f64, confidence: f64 },
+    State(&'static str),
+    Watch(&'static str),
+}
+
+fn drain_control(p: &mut Pipeline, bus: &Arc<Bus>) {
+    let (trigger, ack) = {
+        let mut s = bus.lock();
+        let t = s.control.trigger_inspect;
+        let a = s.control.ack_safe;
+        s.control.trigger_inspect = false;
+        s.control.ack_safe = false;
+        (t, a)
+    };
+    if trigger {
+        p.detector.force_inspect(wall_now());
+    }
+    if ack {
+        p.detector.acknowledge_safe();
+    }
+}
+
+fn process_line(
+    line: &str,
+    p: &mut Pipeline,
+    bus: &Arc<Bus>,
+    notifier: &Notifier,
+    mut serial_out: Option<&mut File>,
+) {
+    drain_control(p, bus);
+
     p.packets += 1;
     let pkt = match dsp::parse_line(line) {
         Some(v) => v,
@@ -462,17 +338,142 @@ fn process_line(line: &str, p: &mut Pipeline, shared: &Arc<Mutex<Shared>>) {
     };
     p.features += 1;
     let state = p.detector.update(&f);
+    drain_control(p, bus);
 
-    let mut burst: Option<u32> = None;
+    let mut actions: Vec<Action> = Vec::new();
     let mut new_transitions = 0u64;
     for ev in &p.detector.trace[p.trace_len..] {
         match ev {
-            TraceEvent::Burst { rate, .. } => burst = Some(*rate),
-            TraceEvent::StateChange { .. } => new_transitions += 1,
+            TraceEvent::Burst { rate, .. } => actions.push(Action::Burst(*rate)),
+            TraceEvent::Challenge { .. } => actions.push(Action::Challenge),
+            TraceEvent::StateChange { to, .. } => {
+                new_transitions += 1;
+                if matches!(*to, "FALL_SUSPECT" | "FALL_CONFIRMED" | "ROUTER_OFFLINE") {
+                    actions.push(Action::State(to));
+                }
+            }
+            TraceEvent::FallAlarm { bpm, confidence, .. } => {
+                actions.push(Action::Alarm { bpm: *bpm, confidence: *confidence })
+            }
+            TraceEvent::ObjectWatch { phase, .. } => actions.push(Action::Watch(phase)),
             _ => {}
         }
     }
     p.trace_len = p.detector.trace.len();
+
+    let (room, household, challenge_on) = {
+        let s = bus.lock();
+        (
+            s.placement.room_name.clone(),
+            s.household_id.clone(),
+            s.placement.enable_gentle_challenge,
+        )
+    };
+
+    for action in actions {
+        match action {
+            Action::Burst(rate) => {
+                if let Some(f) = serial_out.as_deref_mut() {
+                    if serial::write_command(f, &format!("BURST_RATE:{}\n", rate)) {
+                        bus.push_event(
+                            "ACTUATION",
+                            "INFO",
+                            &format!("已向射频节点下发提频指令: {} Hz", rate),
+                            &format!("{{\"cmd\":\"BURST_RATE:{}\"}}", rate),
+                        );
+                    } else {
+                        bus.push_event("ACTUATION", "WARN", "串口写入失败: BURST_RATE", "{}");
+                    }
+                }
+            }
+            Action::Challenge => {
+                if challenge_on {
+                    if let Some(f) = serial_out.as_deref_mut() {
+                        if serial::write_command(f, "CHALLENGE_BEEP:1\n") {
+                            bus.push_event(
+                                "ACTUATION",
+                                "INFO",
+                                "已下发温和提示音（挑战应答）",
+                                "{\"cmd\":\"CHALLENGE_BEEP:1\"}",
+                            );
+                        } else {
+                            bus.push_event("ACTUATION", "WARN", "串口写入失败: CHALLENGE_BEEP", "{}");
+                        }
+                    }
+                } else {
+                    bus.push_event("ACTUATION", "INFO", "温和提示音已按配置关闭，跳过下发", "{}");
+                }
+            }
+            Action::Alarm { bpm, confidence } => {
+                let details = "CSI 冲击后持续静止，定向探测捕获异常体征".to_string();
+                let inc = {
+                    let mut s = bus.lock();
+                    let inc = s.incidents.record(
+                        &room,
+                        "FALL_ALARM",
+                        confidence,
+                        bpm,
+                        &details,
+                        &household,
+                    );
+                    s.events.push(
+                        "FALL_ALARM",
+                        "CRITICAL",
+                        &format!(
+                            "检测到疑似跌倒：{}（置信度 {:.0}%，呼吸 {:.0} bpm）",
+                            room,
+                            confidence * 100.0,
+                            bpm
+                        ),
+                        &format!(
+                            "{{\"event_id\":\"{}\",\"room_name\":\"{}\",\"confidence\":{}}}",
+                            json::escape(&inc.event_id),
+                            json::escape(&room),
+                            inc.confidence
+                        ),
+                    );
+                    inc
+                };
+                bus.cv.notify_all();
+                let event_id = inc.event_id.clone();
+                notifier.send(Notice::Fall {
+                    room: room.clone(),
+                    confidence: format!("{:.0}%", confidence * 100.0),
+                    details,
+                    bpm,
+                    event_id: event_id.clone(),
+                    household: household.clone(),
+                });
+                if notifier.configured_channels() > 0 {
+                    let mut s = bus.lock();
+                    s.incidents.mark_pushed(&event_id, true);
+                }
+            }
+            Action::State(to) => {
+                let (level, text) = match to {
+                    "FALL_CONFIRMED" => ("CRITICAL", "跌倒事件已确诊，开始通知家属"),
+                    "FALL_SUSPECT" => ("WARN", "检测到剧烈冲击，启动定向深度排查"),
+                    _ => ("WARN", "路由器射频信号中断，进入离线守护"),
+                };
+                bus.push_event("STATE_CHANGE", level, text, &format!("{{\"to\":\"{}\"}}", to));
+            }
+            Action::Watch(phase) => {
+                if phase != "none" {
+                    let level = if matches!(phase, "escalate" | "confirmed") {
+                        "CRITICAL"
+                    } else {
+                        "INFO"
+                    };
+                    bus.push_event(
+                        "OBJECT_CONFIRM",
+                        level,
+                        &format!("第二阶段目标确认: {}", phase),
+                        &format!("{{\"phase\":\"{}\"}}", phase),
+                    );
+                }
+            }
+        }
+    }
 
     let neighbor_snap = if p.packets % 80 == 0 {
         Some(snapshot_neighbor(&p.neighbor))
@@ -481,7 +482,7 @@ fn process_line(line: &str, p: &mut Pipeline, shared: &Arc<Mutex<Shared>>) {
     };
     let calib = p.detector.calibrator.status_summary();
 
-    let mut s = shared.lock().unwrap();
+    let mut s = bus.lock();
     s.state = state.name().to_string();
     s.is_pet = state == HumanState::PetActivity;
     s.variance = f.mean_variance;
@@ -489,9 +490,6 @@ fn process_line(line: &str, p: &mut Pipeline, shared: &Arc<Mutex<Shared>>) {
     s.jitter = f.packet_interval_jitter;
     s.diff_energy = f.diff_energy;
     s.spike_ratio = f.spike_ratio;
-    if let Some(r) = burst {
-        s.burst_rate = r;
-    }
     s.base_variance = p.detector.base_variance;
     s.base_diff = p.detector.base_diff;
     s.last_fall_bpm = p.detector.last_fall_bpm;
@@ -526,7 +524,7 @@ fn trace_line(ev: &TraceEvent) -> String {
         TraceEvent::Inspection { ts, state } => {
             format!("{{\"type\":\"inspection\",\"ts\":{},\"state\":\"{}\"}}", ts, state)
         }
-        TraceEvent::FallAlarm { ts } => format!("{{\"type\":\"fall_alarm\",\"ts\":{}}}", ts),
+        TraceEvent::FallAlarm { ts, .. } => format!("{{\"type\":\"fall_alarm\",\"ts\":{}}}", ts),
         TraceEvent::ChallengeIntercepted { ts } => {
             format!("{{\"type\":\"challenge_intercepted\",\"ts\":{}}}", ts)
         }
@@ -550,33 +548,104 @@ fn trace_line(ev: &TraceEvent) -> String {
     }
 }
 
-#[cfg(target_os = "macos")]
-const O_NONBLOCK: i32 = 0x0004;
-#[cfg(target_os = "linux")]
-const O_NONBLOCK: i32 = 0x0800;
-
-fn open_serial(path: &str, baud: u32) -> File {
-    let flag = if cfg!(target_os = "macos") { "-f" } else { "-F" };
-    match std::process::Command::new("stty")
-        .arg(flag)
-        .arg(path)
-        .arg(baud.to_string())
-        .args(["raw", "-echo", "cs8", "-parenb", "-cstopb"])
-        .status()
+fn mark_router_offline(bus: &Arc<Bus>, why: &str) {
     {
-        Ok(s) if s.success() => {}
-        Ok(s) => eprintln!("[serial] stty exited with {}; keeping current port settings", s),
-        Err(e) => eprintln!("[serial] stty unavailable ({}); keeping current port settings", e),
+        let mut s = bus.lock();
+        s.state = "ROUTER_OFFLINE".into();
+        s.events.push("ROUTER_OFFLINE", "WARN", why, "{}");
     }
-    // O_NONBLOCK so open() does not hang waiting for modem control lines.
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NONBLOCK)
-        .open(path)
-        .unwrap_or_else(|e| {
-            eprintln!("cannot open serial {}: {}", path, e);
-            std::process::exit(1);
-        })
+    bus.cv.notify_all();
+}
+
+fn run_serial(
+    bus: &Arc<Bus>,
+    notifier: &Notifier,
+    p: &mut Pipeline,
+    device: &str,
+    baud: u32,
+    stop_check: &dyn Fn(&Pipeline) -> bool,
+) {
+    let mut buf = [0u8; 8192];
+    let mut pending: Vec<u8> = Vec::new();
+    while !stop_check(p) {
+        let path = if device == "auto" {
+            match serial::discover() {
+                Some(path) => path,
+                None => {
+                    mark_router_offline(bus, "未发现射频节点串口，等待重新接入");
+                    std::thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+            }
+        } else {
+            device.to_string()
+        };
+        let mut file = match serial::open(&path, baud) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("[serial] {}", e);
+                mark_router_offline(bus, "射频节点串口打开失败，等待自愈重连");
+                std::thread::sleep(Duration::from_secs(2));
+                continue;
+            }
+        };
+        eprintln!("[serial] reading {} @ {} baud", path, baud);
+        {
+            let mut s = bus.lock();
+            s.state = "CALIBRATING".into();
+            s.events.push(
+                "SERIAL_CONNECTED",
+                "INFO",
+                &format!("射频节点串口已连接: {}", path),
+                "{}",
+            );
+        }
+        bus.cv.notify_all();
+        pending.clear();
+
+        loop {
+            if stop_check(p) {
+                return;
+            }
+            match serial::read_into(&mut file, &mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    pending.extend_from_slice(&buf[..n]);
+                    let mut lines: Vec<String> = Vec::new();
+                    while let Some(pos) = pending.iter().position(|&b| b == b'\n') {
+                        let raw: Vec<u8> = pending.drain(..=pos).collect();
+                        let text = String::from_utf8_lossy(&raw);
+                        let line = text.trim();
+                        if !line.is_empty() {
+                            lines.push(line.to_string());
+                        }
+                    }
+                    // CSI lines are ~600 bytes; a megabyte without a newline is line noise.
+                    if pending.len() > 1_048_576 {
+                        pending.clear();
+                    }
+                    for line in lines {
+                        process_line(&line, p, bus, notifier, Some(&mut file));
+                        if stop_check(p) {
+                            return;
+                        }
+                    }
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => {
+                    eprintln!("[serial] read error: {}", e);
+                    break;
+                }
+            }
+        }
+
+        mark_router_offline(bus, "射频节点串口断开，等待自愈重连");
+        eprintln!("[serial] disconnected from {}; retrying", path);
+        std::thread::sleep(Duration::from_secs(2));
+    }
 }
 
 fn main() {
@@ -605,7 +674,38 @@ fn main() {
         trace_len: 0,
     };
 
-    let shared = Arc::new(Mutex::new(Shared {
+    let mut notify_cfg = NotifyConfig::load(&args.storage_dir);
+    let mut notify_overridden = false;
+    let overrides = [
+        (&args.pushplus_token, &mut notify_cfg.pushplus_token),
+        (&args.serverchan_key, &mut notify_cfg.serverchan_key),
+        (&args.notify_webhook, &mut notify_cfg.webhook_url),
+        (&args.ha_webhook, &mut notify_cfg.ha_webhook_url),
+        (&args.sms_webhook, &mut notify_cfg.sms_webhook_url),
+        (&args.miniprogram_url, &mut notify_cfg.miniprogram_url),
+        (&args.miniprogram_token, &mut notify_cfg.miniprogram_token),
+    ];
+    for (value, slot) in overrides {
+        if !value.is_empty() {
+            *slot = value.clone();
+            notify_overridden = true;
+        }
+    }
+    if let Some(t) = args.notify_timeout {
+        notify_cfg.timeout_secs = t.max(1);
+        notify_overridden = true;
+    }
+    if notify_overridden {
+        notify_cfg.save(&args.storage_dir);
+    }
+    let notifier = Notifier::new(notify_cfg, &args.storage_dir);
+
+    let placement = Placement::load(&args.storage_dir, &args.room_name, args.challenge_enabled);
+    let mut events = EventLog::new(&args.storage_dir);
+    events.push("SYSTEM", "INFO", "SafeHalo Rust 守护服务启动", "{}");
+    let incidents = IncidentStore::new(&args.storage_dir);
+
+    let shared = Shared {
         state: "CALIBRATING".into(),
         is_pet: false,
         variance: 0.0,
@@ -628,16 +728,36 @@ fn main() {
         home_mac: home_clean,
         neighbor: snapshot_neighbor(&p.neighbor),
         calib: p.detector.calibrator.status_summary(),
-    }));
+        events,
+        incidents,
+        control: Default::default(),
+        placement,
+        household_id: args.household_id.clone(),
+        security_mode: "FALL_GUARD".into(),
+        started_at: timefmt::now_epoch(),
+    };
+    let bus = Arc::new(Bus::new(shared));
 
     if !args.no_http {
-        let sh = Arc::clone(&shared);
-        let addr = args.http.clone();
-        let token = args.api_token.clone();
-        if !token.is_empty() {
-            eprintln!("[http] token authentication enabled");
+        let auth = Arc::new(AuthManager::new(&args.data_dir));
+        let html = match &args.web_html {
+            Some(path) => std::fs::read_to_string(path).unwrap_or_else(|e| {
+                eprintln!("[http] cannot read {}: {}; using embedded console", path, e);
+                http::default_html().to_string()
+            }),
+            None => http::default_html().to_string(),
+        };
+        let cfg = HttpConfig {
+            token: args.api_token.clone(),
+            html,
+        };
+        if !cfg.token.is_empty() {
+            eprintln!("[http] machine token authentication enabled");
         }
-        std::thread::spawn(move || serve(addr, sh, token));
+        let sh = Arc::clone(&bus);
+        let addr = args.http.clone();
+        let notifier_http = notifier.clone();
+        std::thread::spawn(move || http::serve(addr, sh, auth, notifier_http, cfg));
     }
 
     let start = Instant::now();
@@ -661,7 +781,7 @@ fn main() {
             if line.trim().is_empty() {
                 continue;
             }
-            process_line(&line, &mut p, &shared);
+            process_line(&line, &mut p, &bus, &notifier, None);
             count += 1;
             if args.replay_rate > 0.0 {
                 let target = Duration::from_secs_f64(count as f64 / args.replay_rate);
@@ -694,7 +814,7 @@ fn main() {
                         if line.is_empty() {
                             continue;
                         }
-                        process_line(line, &mut p, &shared);
+                        process_line(line, &mut p, &bus, &notifier, None);
                         if stop_check(&p) {
                             break;
                         }
@@ -706,43 +826,8 @@ fn main() {
                 Err(_) => break,
             }
         }
-    } else if let Some(path) = &args.serial {
-        let mut file = open_serial(path, args.baud);
-        eprintln!("[serial] reading {} @ {} baud", path, args.baud);
-        let mut buf = [0u8; 8192];
-        let mut pending: Vec<u8> = Vec::new();
-        while !stop_check(&p) {
-            let n = match file.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(5));
-                    continue;
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => {
-                    eprintln!("[serial] read error: {}", e);
-                    break;
-                }
-            };
-            pending.extend_from_slice(&buf[..n]);
-            while let Some(pos) = pending.iter().position(|&b| b == b'\n') {
-                let raw_line: Vec<u8> = pending.drain(..=pos).collect();
-                let text = String::from_utf8_lossy(&raw_line);
-                let line = text.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                process_line(line, &mut p, &shared);
-                if stop_check(&p) {
-                    break;
-                }
-            }
-            // CSI lines are ~600 bytes; a megabyte without a newline is line noise.
-            if pending.len() > 1_048_576 {
-                pending.clear();
-            }
-        }
+    } else if let Some(device) = &args.serial {
+        run_serial(&bus, &notifier, &mut p, device, args.baud, &stop_check);
     } else {
         let stdin = std::io::stdin();
         for line in stdin.lock().lines() {
@@ -753,7 +838,7 @@ fn main() {
             if line.trim().is_empty() {
                 continue;
             }
-            process_line(&line, &mut p, &shared);
+            process_line(&line, &mut p, &bus, &notifier, None);
             if stop_check(&p) {
                 break;
             }
@@ -764,7 +849,7 @@ fn main() {
     {
         let ns = snapshot_neighbor(&p.neighbor);
         let calib = p.detector.calibrator.status_summary();
-        let mut s = shared.lock().unwrap();
+        let mut s = bus.lock();
         s.neighbor = ns;
         s.calib = calib;
         s.packets = p.packets;
@@ -784,7 +869,7 @@ fn main() {
             eprintln!("cannot write trace {}: {}", path, e);
         }
     }
-    let snapshot = snapshot_json(&shared.lock().unwrap());
+    let snapshot = state::snapshot_json(&bus.lock());
     if let Some(path) = &args.snapshot {
         if let Err(e) = std::fs::write(path, snapshot.clone()) {
             eprintln!("cannot write snapshot {}: {}", path, e);
@@ -792,7 +877,7 @@ fn main() {
     }
 
     let elapsed = start.elapsed().as_secs_f64();
-    let s = shared.lock().unwrap();
+    let s = bus.lock();
     println!(
         "packets={} accepted={} features={} final_state={} fall_alarms={} transitions={} elapsed={:.3}s rate={:.0}pkt/s",
         s.packets,
@@ -805,5 +890,9 @@ fn main() {
         if elapsed > 0.0 { s.packets as f64 / elapsed } else { 0.0 }
     );
     let _ = std::io::stdout().flush();
+    drop(s);
+    if notifier.configured_channels() > 0 && !notifier.flush(Duration::from_secs(30)) {
+        eprintln!("[notify] shutdown before the queue drained");
+    }
     std::process::exit(0);
 }
