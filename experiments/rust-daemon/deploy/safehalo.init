@@ -9,18 +9,22 @@ PROG=/usr/bin/safehalo-daemon
 start_service() {
 	config_load safehalo
 
-	local enabled input udp_addr serial_dev baud http_addr storage_dir
+	local enabled input udp_addr serial_dev baud http_addr storage_dir data_dir
 	local home_mac calibration_secs stillness_secs window rssi_floor api_token
 	local object_confirm_secs object_confirm_cv object_confirm_min_intervals
+	local room_name challenge_enabled household_id
+	local pushplus_token serverchan_key webhook_url ha_webhook_url sms_webhook_url
+	local miniprogram_url miniprogram_token notify_timeout
 	config_get_bool enabled safehalo enabled 1
 	[ "$enabled" -eq 0 ] && return 0
 
 	config_get input safehalo input udp
 	config_get udp_addr safehalo udp_addr '0.0.0.0:9911'
-	config_get serial_dev safehalo serial_dev '/dev/ttyUSB0'
-	config_get baud safehalo baud 115200
+	config_get serial_dev safehalo serial_dev 'auto'
+	config_get baud safehalo baud 921600
 	config_get http_addr safehalo http_addr '0.0.0.0:8091'
 	config_get storage_dir safehalo storage_dir '/etc/safehalo'
+	config_get data_dir safehalo data_dir '/etc/safehalo/data'
 	config_get home_mac safehalo home_mac 'c0:06:c3:11:22:33'
 	config_get calibration_secs safehalo calibration_secs 4
 	config_get stillness_secs safehalo stillness_secs 5
@@ -30,11 +34,31 @@ start_service() {
 	config_get object_confirm_cv safehalo object_confirm_cv 0.35
 	config_get object_confirm_min_intervals safehalo object_confirm_min_intervals 3
 	config_get api_token safehalo api_token ''
+	config_get room_name safehalo room_name '客厅'
+	config_get_bool challenge_enabled safehalo challenge_enabled 1
+	config_get household_id safehalo household_id 'H01'
+	config_get pushplus_token safehalo pushplus_token ''
+	config_get serverchan_key safehalo serverchan_key ''
+	config_get webhook_url safehalo webhook_url ''
+	config_get ha_webhook_url safehalo ha_webhook_url ''
+	config_get sms_webhook_url safehalo sms_webhook_url ''
+	config_get miniprogram_url safehalo miniprogram_url ''
+	config_get miniprogram_token safehalo miniprogram_token ''
+	config_get notify_timeout safehalo notify_timeout 5
 
 	local token_args
 	[ -n "$api_token" ] && token_args="--api-token $api_token"
 
-	local input_args
+	local notify_args
+	[ -n "$pushplus_token" ] && notify_args="$notify_args --pushplus-token $pushplus_token"
+	[ -n "$serverchan_key" ] && notify_args="$notify_args --serverchan-key $serverchan_key"
+	[ -n "$webhook_url" ] && notify_args="$notify_args --notify-webhook $webhook_url"
+	[ -n "$ha_webhook_url" ] && notify_args="$notify_args --ha-webhook $ha_webhook_url"
+	[ -n "$sms_webhook_url" ] && notify_args="$notify_args --sms-webhook $sms_webhook_url"
+	[ -n "$miniprogram_url" ] && notify_args="$notify_args --miniprogram-url $miniprogram_url"
+	[ -n "$miniprogram_token" ] && notify_args="$notify_args --miniprogram-token $miniprogram_token"
+
+	local input_args challenge_arg
 	case "$input" in
 		udp)
 			input_args="--udp $udp_addr"
@@ -48,15 +72,27 @@ start_service() {
 			;;
 	esac
 
-	mkdir -p "$storage_dir"
+	if [ "$challenge_enabled" -eq 1 ]; then
+		challenge_arg=1
+	else
+		challenge_arg=0
+	fi
+
+	mkdir -p "$storage_dir" "$data_dir"
 
 	procd_open_instance
 	procd_set_param command "$PROG" \
 		$input_args \
 		$token_args \
+		$notify_args \
 		--http "$http_addr" \
 		--storage-dir "$storage_dir" \
+		--data-dir "$data_dir" \
 		--home-mac "$home_mac" \
+		--room-name "$room_name" \
+		--challenge-enabled "$challenge_arg" \
+		--household-id "$household_id" \
+		--notify-timeout "$notify_timeout" \
 		--calibration-secs "$calibration_secs" \
 		--stillness-secs "$stillness_secs" \
 		--window "$window" \

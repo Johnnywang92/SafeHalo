@@ -43,14 +43,15 @@ install_file() {
 	fi
 }
 
-mkdir -p /usr/bin /etc/init.d /etc/config
+mkdir -p /usr/bin /etc/init.d /etc/config /etc/safehalo/data
 install_file "$BIN" 0755 /usr/bin/safehalo-daemon
 install_file "$SRC/safehalo.init" 0755 /etc/init.d/safehalo
 if [ ! -f /etc/config/safehalo ]; then
 	install_file "$SRC/safehalo.config" 0644 /etc/config/safehalo
-	echo "wrote default /etc/config/safehalo (edit input/serial_dev/home_mac for your site)"
+	echo "wrote default /etc/config/safehalo (edit input/serial_dev/home_mac/room_name for your site)"
 fi
 
 /etc/init.d/safehalo enable
 echo "installed and enabled. Start with: /etc/init.d/safehalo start"
-echo "status: http://<router-ip>:8091/api/ha/status   config: /etc/config/safehalo"
+echo "console: http://<router-ip>:8091/   status: http://<router-ip>:8091/api/ha/status"
+echo "config: /etc/config/safehalo   data: /etc/safehalo (users.json, incidents, events, model)"
