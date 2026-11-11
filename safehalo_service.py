@@ -53,6 +53,9 @@ class SafeHaloSupervisor:
         ha_mqtt_user: Optional[str] = None,
         ha_mqtt_pass: Optional[str] = None,
         ha_webhook: Optional[str] = None,
+        object_confirm_seconds: float = 0.0,
+        object_confirm_cv: float = 0.35,
+        object_confirm_min_intervals: int = 3,
     ):
         self.web_port = web_port
         self.web_host = web_host
@@ -69,6 +72,9 @@ class SafeHaloSupervisor:
         self.ha_mqtt_user = ha_mqtt_user
         self.ha_mqtt_pass = ha_mqtt_pass
         self.ha_webhook = ha_webhook
+        self.object_confirm_seconds = object_confirm_seconds
+        self.object_confirm_cv = object_confirm_cv
+        self.object_confirm_min_intervals = object_confirm_min_intervals
 
         self.running = True
         self._active_csi_serial = None
@@ -112,6 +118,9 @@ class SafeHaloSupervisor:
             on_request_burst_rate=self._on_request_burst_rate,
             on_trigger_challenge=self._on_trigger_challenge,
             on_challenge_intercepted=self._on_challenge_intercepted,
+            object_confirm_seconds=self.object_confirm_seconds,
+            object_confirm_cv=self.object_confirm_cv,
+            object_confirm_min_intervals=self.object_confirm_min_intervals,
         )
 
         # 多链路空间分集融合引擎 (支持单/多路由器自动解耦与房间级定位)
@@ -574,6 +583,12 @@ def main():
     parser.add_argument("--demo", action="store_true", help="无硬件仿真运行模式")
     parser.add_argument("--pushplus-token", type=str, default=None, help="微信 PushPlus 告警 Token")
     parser.add_argument("--wait-network", type=float, default=2.0, help="开机缓冲时间 (秒)")
+    parser.add_argument("--object-confirm-secs", type=float, default=0.0,
+                        help="阶段一判物品后的长窗确认观察时长/秒 (0=关闭, 默认关闭)")
+    parser.add_argument("--object-confirm-cv", type=float, default=0.35,
+                        help="峰间隔变异系数阈值 (占位值, 待真数据标定)")
+    parser.add_argument("--object-confirm-min-intervals", type=int, default=3,
+                        help="长窗确认所需的最少峰间隔数 (少于该值不下结论)")
 
     args = parser.parse_args()
 
@@ -594,6 +609,9 @@ def main():
         ha_mqtt_user=args.ha_mqtt_user,
         ha_mqtt_pass=args.ha_mqtt_pass,
         ha_webhook=args.ha_webhook,
+        object_confirm_seconds=args.object_confirm_secs,
+        object_confirm_cv=args.object_confirm_cv,
+        object_confirm_min_intervals=args.object_confirm_min_intervals,
     )
 
     supervisor.start()

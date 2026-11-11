@@ -25,6 +25,9 @@ class RouterCSIEngine:
         on_request_burst_rate: Optional[Callable[[int], None]] = None,
         on_trigger_challenge: Optional[Callable[[str], None]] = None,
         on_challenge_intercepted: Optional[Callable[[str], None]] = None,
+        object_confirm_seconds: float = 0.0,
+        object_confirm_cv: float = 0.35,
+        object_confirm_min_intervals: int = 3,
     ):
         """
         :param router_mac: 路由器的 BSSID / MAC 地址 (如 "aa:bb:cc:dd:ee:ff")，若提供则自动锁定家网
@@ -46,6 +49,9 @@ class RouterCSIEngine:
             on_request_burst_rate=on_request_burst_rate,
             on_trigger_challenge=on_trigger_challenge,
             on_challenge_intercepted=on_challenge_intercepted,
+            object_confirm_seconds=object_confirm_seconds,
+            object_confirm_cv=object_confirm_cv,
+            object_confirm_min_intervals=object_confirm_min_intervals,
         )
 
         # 统计计数

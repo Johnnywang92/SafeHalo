@@ -13,6 +13,7 @@ from typing import Callable, Optional
 from .feature_extractor import CSIFeatures
 from .pet_filter import PetImmunityFilter, PetDiscriminationResult
 from .targeted_inspector import TargetedFallInspector, TargetedInspectionState, TargetedInspectionResult
+from .object_confirm import ObjectConfirmWatcher, DEFAULT_CV_THRESHOLD, MIN_INTERVALS
 from .auto_calibrator import ContinuousAutoCalibrator
 from .logger import logger
 
@@ -39,6 +40,9 @@ class RouterCSIDetector:
         on_trigger_challenge: Optional[Callable[[str], None]] = None,
         on_challenge_intercepted: Optional[Callable[[str], None]] = None,
         auto_calibrator: Optional[ContinuousAutoCalibrator] = None,
+        object_confirm_seconds: float = 0.0,
+        object_confirm_cv: float = DEFAULT_CV_THRESHOLD,
+        object_confirm_min_intervals: int = MIN_INTERVALS,
     ):
         self.calibration_seconds = calibration_seconds
         self.fall_spike_threshold = fall_spike_threshold
@@ -78,6 +82,12 @@ class RouterCSIDetector:
             on_trigger_challenge=on_trigger_challenge,
         )
 
+        # 第二阶段物品确认（默认关闭: object_confirm_seconds <= 0）
+        self.object_confirm_seconds = object_confirm_seconds
+        self.object_confirm_cv = object_confirm_cv
+        self.object_confirm_min_intervals = object_confirm_min_intervals
+        self.object_watcher: Optional[ObjectConfirmWatcher] = None
+
         # 状态去抖动
         self.state_hold_count = 0
         self.pending_state: Optional[HumanState] = None
@@ -94,6 +104,10 @@ class RouterCSIDetector:
 
         # 检查路由器连通性与健康度
         if features.sample_rate_hz < 3.0:
+            if self.object_watcher is not None:
+                # 丢包窗口内的观察不可信，放弃本次确认（下一次完整观察重新开始）
+                logger.log_object_watch("aborted", "路由器离线，放弃物品确认观察")
+                self.object_watcher = None
             if self.current_state != HumanState.ROUTER_OFFLINE:
                 self._switch_state(HumanState.ROUTER_OFFLINE, features)
             return self.current_state
@@ -156,6 +170,38 @@ class RouterCSIDetector:
                 self._switch_state(HumanState.FALL_SUSPECT, features)
                 return self.current_state
 
+        # 3.5 第二阶段物品确认观察中（开关开启且阶段一已判 OBJECT）:
+        #     保持 FALL_SUSPECT 不报警，直到长窗结论出来；只允许升级为跌倒。
+        if self.current_state == HumanState.FALL_SUSPECT and self.object_watcher is not None:
+            amps = features.current_amplitudes
+            mean_amp = 0.0
+            if amps:
+                for a in amps:
+                    mean_amp += a
+                mean_amp /= len(amps)
+            result = self.object_watcher.feed(now, mean_amp)
+            if result is not None:
+                self.object_watcher = None
+                if result.escalate:
+                    logger.log_object_watch(
+                        "escalate", result.details,
+                        peaks=result.peaks, intervals=result.intervals, cv=result.cv,
+                    )
+                    logger.log_fall_confirmed(result.details, result.bpm, 0.90)
+                    self.fall_spike_time = None
+                    self._switch_state(HumanState.FALL_CONFIRMED, features)
+                    if self.on_fall_alarm:
+                        self.on_fall_alarm(features)
+                else:
+                    phase = "insufficient" if result.insufficient else "confirmed"
+                    logger.log_object_watch(
+                        phase, result.details,
+                        peaks=result.peaks, intervals=result.intervals, cv=result.cv,
+                    )
+                    self.fall_spike_time = None
+                    self._switch_state(HumanState.EMPTY, features)
+            return self.current_state
+
         # 4. 处于「疑似跌倒」状态时，启动定向深度核验
         if self.current_state == HumanState.FALL_SUSPECT:
             if self.targeted_inspector.current_state == TargetedInspectionState.STANDBY:
@@ -191,6 +237,20 @@ class RouterCSIDetector:
                     return self.current_state
 
                 elif verdict.state == TargetedInspectionState.VERDICT_OBJECT:
+                    if self.object_confirm_seconds > 0:
+                        # 阶段一判为物品: 不立即结案，启动长窗规整度确认。
+                        # 观察期内保持 FALL_SUSPECT（趋向报警的安全侧），不报警。
+                        self.object_watcher = ObjectConfirmWatcher(
+                            start_ts=now,
+                            duration_seconds=self.object_confirm_seconds,
+                            cv_threshold=self.object_confirm_cv,
+                            min_intervals=self.object_confirm_min_intervals,
+                        )
+                        logger.log_object_watch(
+                            "start",
+                            f"阶段一判为物品，启动 {self.object_confirm_seconds:.0f}s 长窗确认观察",
+                        )
+                        return self.current_state
                     # 排除人类跌倒 (无生命体征，系重物掉落地面)
                     logger.log_event("INSPECTION_OBJECT", verdict.details, level="INFO")
                     self.fall_spike_time = None

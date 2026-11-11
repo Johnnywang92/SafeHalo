@@ -165,6 +165,18 @@ class SafeHaloLogger:
             data["bpm"] = bpm
         self.log_event("INSPECTION", f"定向排查进展: [{stage}] {details}", level="INFO", data=data)
 
+    def log_object_watch(self, phase: str, details: str, peaks: Optional[int] = None,
+                         intervals: Optional[int] = None, cv: Optional[float] = None):
+        """第二阶段物品确认观察（开关开启时才产生事件）。"""
+        data = {"phase": phase, "details": details}
+        if peaks is not None:
+            data["peaks"] = peaks
+        if intervals is not None:
+            data["intervals"] = intervals
+        if cv is not None:
+            data["cv"] = cv
+        self.log_event("OBJECT_WATCH", f"物品确认观察: [{phase}] {details}", level="INFO", data=data)
+
     def log_fall_confirmed(self, details: str, bpm: float, confidence: float):
         self.log_event(
             "FALL_CONFIRMED",
