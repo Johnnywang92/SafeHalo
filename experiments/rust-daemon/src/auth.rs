@@ -171,6 +171,16 @@ pub fn random_bytes(n: usize) -> Vec<u8> {
     buf
 }
 
+fn password_policy_error(password: &str) -> Option<String> {
+    if password.len() < 8 {
+        return Some("密码长度至少需 8 个字符".into());
+    }
+    if password == "admin123" {
+        return Some("不能使用默认密码 admin123，请设置一个新密码".into());
+    }
+    None
+}
+
 pub fn hash_password(password: &str, salt_hex: Option<&str>) -> Option<(String, String)> {
     let salt = match salt_hex {
         Some(s) => hex_decode(s)?,
@@ -406,8 +416,8 @@ impl AuthManager {
         if username.len() < 3 {
             return (false, "用户名长度至少需 3 个字符".into());
         }
-        if password.len() < 6 {
-            return (false, "密码长度至少需 6 个字符".into());
+        if let Some(e) = password_policy_error(password) {
+            return (false, e);
         }
         if role != "admin" && role != "family" {
             return (false, "非法角色，仅限 admin 或 family".into());
@@ -438,8 +448,11 @@ impl AuthManager {
     }
 
     pub fn update_password(&self, username: &str, old: &str, new: &str) -> (bool, String) {
-        if new.len() < 6 {
-            return (false, "新密码长度至少需 6 个字符".into());
+        if let Some(e) = password_policy_error(new) {
+            return (false, e);
+        }
+        if new == old {
+            return (false, "新密码不能与原密码相同".into());
         }
         let mut st = self.lock();
         let idx = match st.users.iter().position(|u| u.username == username) {

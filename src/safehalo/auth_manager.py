@@ -43,6 +43,14 @@ def verify_password(password: str, stored_hash: str, salt_hex: str) -> bool:
     computed_hash, _ = hash_password(password, salt_hex)
     return secrets.compare_digest(stored_hash, computed_hash)
 
+def password_policy_error(password: str) -> Optional[str]:
+    """返回密码策略错误信息；合规时返回 None。"""
+    if not password or len(password) < 8:
+        return "密码长度至少需 8 个字符"
+    if password == "admin123":
+        return "不能使用默认密码 admin123，请设置一个新密码"
+    return None
+
 class AuthManager:
     _instance = None
 
@@ -174,8 +182,9 @@ class AuthManager:
         username = username.strip()
         if not username or len(username) < 3:
             return False, "用户名长度至少需 3 个字符"
-        if not password or len(password) < 6:
-            return False, "密码长度至少需 6 个字符"
+        policy_err = password_policy_error(password)
+        if policy_err:
+            return False, policy_err
         if role not in ("admin", "family"):
             return False, "非法角色，仅限 admin 或 family"
 
@@ -200,8 +209,11 @@ class AuthManager:
 
     def update_password(self, username: str, old_password: str, new_password: str, is_admin_override: bool = False) -> Tuple[bool, str]:
         """修改密码"""
-        if not new_password or len(new_password) < 6:
-            return False, "新密码长度至少需 6 个字符"
+        policy_err = password_policy_error(new_password)
+        if policy_err:
+            return False, policy_err
+        if new_password == old_password:
+            return False, "新密码不能与原密码相同"
 
         users = self._read_users()
         user = users.get(username)

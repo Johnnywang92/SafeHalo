@@ -975,7 +975,7 @@
             <h4 style="margin-bottom: 12px; font-size: 0.95rem;">🔑 修改当前登录密码</h4>
             <div style="display: flex; gap: 12px; max-width: 500px;">
               <input type="password" id="my-old-pwd" placeholder="原密码">
-              <input type="password" id="my-new-pwd" placeholder="新密码 (至少6位)">
+              <input type="password" id="my-new-pwd" placeholder="新密码 (至少8位)">
               <button class="btn btn-secondary" onclick="changeMyPassword()" style="white-space: nowrap;">确认修改</button>
             </div>
           </div>
@@ -993,7 +993,7 @@
         <span style="cursor: pointer; color: var(--text-muted);" onclick="closeAuthModal()">✕</span>
       </div>
       <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">
-        远程访问已开启安全鉴权。初始管理员账号: <code>admin</code> / <code>admin123</code>
+        远程访问已开启安全鉴权。初始管理员账号: <code>admin</code> / <code>admin123</code>（首次登录将强制修改初始密码）
       </p>
       <div class="form-group">
         <label>用户名</label>
@@ -1014,6 +1014,35 @@
     </div>
   </div>
 
+  <!-- 首次登录强制修改密码模态框（改密前不可关闭） -->
+  <div id="modal-force-pwd" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title">
+        <span>🔑 请先修改初始密码</span>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">
+        为了家庭安全，初始密码不能长期使用。请设置一个至少 8 位的新密码（不能继续使用 admin123），修改成功后将自动重新登录。
+      </p>
+      <div class="form-group">
+        <label>当前密码</label>
+        <input type="password" id="force-old-pwd" placeholder="请输入当前密码">
+      </div>
+      <div class="form-group">
+        <label>新密码（至少 8 位）</label>
+        <input type="password" id="force-new-pwd" placeholder="请输入新密码">
+      </div>
+      <div class="form-group">
+        <label>确认新密码</label>
+        <input type="password" id="force-new-pwd2" placeholder="请再次输入新密码">
+      </div>
+      <div id="force-pwd-err" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 12px; display: none;"></div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button class="btn" style="flex: 1;" onclick="submitForcePwdChange()">修改并重新登录</button>
+        <button class="btn btn-secondary" onclick="forcePwdLogout()">退出登录</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 添加新成员模态框 -->
   <div id="modal-new-user" class="modal-overlay">
     <div class="modal-box">
@@ -1026,7 +1055,7 @@
         <input type="text" id="new-user-name" placeholder="字母或数字，至少3位">
       </div>
       <div class="form-group">
-        <label>初始密码 (至少6位)</label>
+        <label>初始密码 (至少8位)</label>
         <div style="position: relative;">
           <input type="text" id="new-user-pwd" placeholder="请设置初始登录密码 (如 safehalo2026)" value="safehalo2026" style="font-family: monospace;">
           <span style="position: absolute; right: 12px; top: 12px; font-size: 0.78rem; color: #2563eb; cursor: pointer; user-select: none;" onclick="togglePasswordVisibility('new-user-pwd', this)">👁️</span>
@@ -1391,8 +1420,16 @@
           room_name: selectedRoomName
         })
       })
-      .then(r => r.json())
+      .then(r => {
+        if (r.status === 401 || r.status === 403) {
+          alert('初始化已完成，请先登录管理员账号再发送测试通知');
+          openAuthModal();
+          return null;
+        }
+        return r.json();
+      })
       .then(d => {
+        if (!d) return;
         alert('💌 ' + (d.message || '平安测试消息已发出，请查看手机！'));
       })
       .catch(err => {
@@ -1424,8 +1461,16 @@
           pushplus_token: pushToken
         })
       })
-      .then(r => r.json())
+      .then(r => {
+        if (r.status === 401 || r.status === 403) {
+          alert('初始化已完成，请先登录管理员账号再修改守护方案');
+          openAuthModal();
+          return null;
+        }
+        return r.json();
+      })
       .then(d => {
+        if (!d) return;
         if (d.success) {
           if (pushToken && document.getElementById('cfg-pushplus')) {
             document.getElementById('cfg-pushplus').value = pushToken;
@@ -1502,6 +1547,9 @@
             document.getElementById('sec-users').style.display = showUsers ? 'block' : 'none';
             document.getElementById('subnav-users').style.display = showUsers ? 'inline-block' : 'none';
             closeAuthModal();
+            if (currentUser.must_change_password) {
+              openForcePwdModal(currentUser.username);
+            }
           } else {
             currentUser = null;
             document.getElementById('header-username').innerText = '登录';
@@ -1569,8 +1617,12 @@
         if (d.success) {
           errBox.style.display = 'none';
           closeAuthModal();
-          checkAuthStatus();
-          alert('登录成功！欢迎 ' + (d.user.display_name || d.user.username));
+          if (d.user && d.user.must_change_password) {
+            openForcePwdModal(d.user.username);
+          } else {
+            checkAuthStatus();
+            alert('登录成功！欢迎 ' + (d.user.display_name || d.user.username));
+          }
         } else {
           errBox.innerText = d.message || '登录失败';
           errBox.style.display = 'block';
@@ -1579,6 +1631,60 @@
       .catch(err => {
         errBox.innerText = '登录网络错误: ' + err;
         errBox.style.display = 'block';
+      });
+    }
+
+    let forcedPwdUsername = '';
+
+    function openForcePwdModal(username) {
+      forcedPwdUsername = username || '';
+      document.getElementById('force-old-pwd').value = '';
+      document.getElementById('force-new-pwd').value = '';
+      document.getElementById('force-new-pwd2').value = '';
+      document.getElementById('force-pwd-err').style.display = 'none';
+      closeAuthModal();
+      document.getElementById('modal-force-pwd').classList.add('active');
+    }
+
+    function submitForcePwdChange() {
+      const oldP = document.getElementById('force-old-pwd').value;
+      const newP = document.getElementById('force-new-pwd').value;
+      const newP2 = document.getElementById('force-new-pwd2').value;
+      const errBox = document.getElementById('force-pwd-err');
+      const fail = (msg) => { errBox.innerText = msg; errBox.style.display = 'block'; };
+      if (!oldP || !newP) { fail('请输入当前密码和新密码'); return; }
+      if (newP.length < 8) { fail('新密码长度至少需 8 个字符'); return; }
+      if (newP !== newP2) { fail('两次输入的新密码不一致'); return; }
+      fetch('/api/auth/update_password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_password: oldP, new_password: newP })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (!d.success) { fail(d.message || '修改密码失败'); return; }
+        // 服务端已注销全部旧会话，用新密码自动重新登录
+        return fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: forcedPwdUsername, password: newP })
+        })
+        .then(r => r.json())
+        .then(ld => {
+          document.getElementById('modal-force-pwd').classList.remove('active');
+          checkAuthStatus();
+          if (ld.success) {
+            alert('密码修改成功，已自动重新登录！');
+          }
+        });
+      })
+      .catch(err => fail('网络错误: ' + err));
+    }
+
+    function forcePwdLogout() {
+      fetch('/api/auth/logout', { method: 'POST' }).then(() => {
+        document.getElementById('modal-force-pwd').classList.remove('active');
+        checkAuthStatus();
       });
     }
 

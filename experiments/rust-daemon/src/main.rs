@@ -48,6 +48,7 @@ struct Args {
     http: String,
     no_http: bool,
     api_token: String,
+    cookie_secure: bool,
     storage_dir: String,
     data_dir: String,
     trace: Option<String>,
@@ -82,7 +83,8 @@ fn usage() -> ! {
          Usage: safehalo-daemon [--replay FILE [--replay-rate N]] | [--udp ADDR:PORT] | [--serial DEV|auto [--baud N]] | [--stdin]\n\
          \x20 --http ADDR:PORT        HTTP listen address (default 127.0.0.1:8091)\n\
          \x20 --no-http               disable the web service\n\
-         \x20 --api-token TOKEN       machine token; grants admin on Bearer/query auth (default off)\n\
+         \x20 --api-token TOKEN       machine token; read + feedback/ack/mode-switch via Bearer/query (default off)\n\
+         \x20 --cookie-secure         mark session cookies Secure (enable behind HTTPS reverse proxy)\n\
          \x20 --storage-dir DIR       model / incidents / events / notifier storage (default ./daemon-storage)\n\
          \x20 --data-dir DIR          user database directory (default ./data)\n\
          \x20 --trace FILE            write state/inspector event trace (JSONL)\n\
@@ -127,6 +129,7 @@ fn parse_args() -> Args {
         http: "127.0.0.1:8091".into(),
         no_http: false,
         api_token: String::new(),
+        cookie_secure: false,
         storage_dir: "daemon-storage".into(),
         data_dir: "data".into(),
         trace: None,
@@ -172,6 +175,7 @@ fn parse_args() -> Args {
             "--http" => a.http = need(),
             "--no-http" => a.no_http = true,
             "--api-token" => a.api_token = need(),
+            "--cookie-secure" => a.cookie_secure = true,
             "--storage-dir" => a.storage_dir = need(),
             "--data-dir" => a.data_dir = need(),
             "--trace" => a.trace = Some(need()),
@@ -750,6 +754,7 @@ fn main() {
         let cfg = HttpConfig {
             token: args.api_token.clone(),
             html,
+            cookie_secure: args.cookie_secure,
         };
         if !cfg.token.is_empty() {
             eprintln!("[http] machine token authentication enabled");

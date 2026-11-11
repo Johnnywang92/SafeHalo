@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::auth::{AuthManager, Session};
@@ -25,6 +25,7 @@ pub fn default_html() -> &'static str {
 pub struct HttpConfig {
     pub token: String,
     pub html: String,
+    pub cookie_secure: bool,
 }
 
 struct Req {
@@ -43,7 +44,7 @@ enum Ctx {
 impl Ctx {
     fn role(&self) -> &str {
         match self {
-            Ctx::Machine => "admin",
+            Ctx::Machine => "machine",
             Ctx::User(s) => &s.role,
         }
     }
@@ -52,6 +53,39 @@ impl Ctx {
             Ctx::Machine => "api-token",
             Ctx::User(s) => &s.username,
         }
+    }
+}
+
+struct RateLimiter {
+    hits: Mutex<HashMap<String, (f64, u32)>>,
+}
+
+impl RateLimiter {
+    fn new() -> Self {
+        RateLimiter { hits: Mutex::new(HashMap::new()) }
+    }
+
+    fn allow(&self, key: &str, limit: u32, window_secs: f64) -> bool {
+        let now = timefmt::now_epoch();
+        let mut h = self.hits.lock().unwrap_or_else(|e| e.into_inner());
+        if h.len() > 4096 {
+            h.retain(|_, (t, _)| now - *t < 60.0);
+            // Still oversized means a key-flood attack; drop state rather than grow unbounded.
+            if h.len() > 8192 {
+                h.clear();
+            }
+        }
+        let e = h.entry(key.to_string()).or_insert((now, 0));
+        if now - e.0 >= window_secs {
+            *e = (now, 0);
+        }
+        e.1 += 1;
+        e.1 <= limit
+    }
+
+    fn reset(&self, key: &str) {
+        let mut h = self.hits.lock().unwrap_or_else(|e| e.into_inner());
+        h.remove(key);
     }
 }
 
@@ -209,6 +243,36 @@ fn auth_ctx(req: &Req, q: &HashMap<String, String>, auth: &AuthManager, token: &
     None
 }
 
+fn must_change_exempt(method: &str, path: &str) -> bool {
+    if path == "/api/auth/update_password" {
+        return true;
+    }
+    if method == "GET" {
+        matches!(
+            path,
+            "/" | "/index.html" | "/api/auth/current" | "/api/ha/status" | "/api/routine"
+                | "/api/neighbor_spectrum" | "/api/placement" | "/api/multilink"
+                | "/api/phase2/pilot" | "/api/incidents"
+        )
+    } else {
+        matches!(path, "/api/auth/login" | "/api/auth/logout" | "/api/challenge/acknowledge")
+    }
+}
+
+fn origin_ok(req: &Req) -> bool {
+    let host = header(req, "host").to_ascii_lowercase();
+    for name in ["origin", "referer"] {
+        let v = header(req, name);
+        if v.is_empty() {
+            continue;
+        }
+        let rest = v.split_once("://").map(|(_, r)| r).unwrap_or(v);
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        return !host.is_empty() && authority.to_ascii_lowercase() == host;
+    }
+    true
+}
+
 fn send_raw(st: &mut TcpStream, status: u16, reason: &str, ctype: &str, body: &[u8], extra: &[String]) {
     let mut head = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
@@ -233,6 +297,7 @@ fn send_json(st: &mut TcpStream, status: u16, body: &str) {
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
+        429 => "Too Many Requests",
         500 => "Internal Server Error",
         _ => "OK",
     };
@@ -264,26 +329,72 @@ pub fn serve(addr: String, bus: Arc<Bus>, auth: Arc<AuthManager>, notifier: Noti
         }
     };
     eprintln!("[http] listening on http://{}/", addr);
+    let limiter = Arc::new(RateLimiter::new());
     for stream in listener.incoming() {
         if let Ok(st) = stream {
             let bus = Arc::clone(&bus);
             let auth = Arc::clone(&auth);
             let notifier = notifier.clone();
             let cfg = cfg.clone();
+            let limiter = Arc::clone(&limiter);
             let _ = std::thread::Builder::new()
                 .stack_size(256 * 1024)
                 .name("http".into())
-                .spawn(move || handle_conn(st, bus, auth, notifier, cfg));
+                .spawn(move || handle_conn(st, bus, auth, notifier, cfg, limiter));
         }
     }
 }
 
-fn handle_conn(mut st: TcpStream, bus: Arc<Bus>, auth: Arc<AuthManager>, notifier: Notifier, cfg: HttpConfig) {
+fn handle_conn(
+    mut st: TcpStream,
+    bus: Arc<Bus>,
+    auth: Arc<AuthManager>,
+    notifier: Notifier,
+    cfg: HttpConfig,
+    limiter: Arc<RateLimiter>,
+) {
     let req = match read_request(&mut st) {
         Some(r) => r,
         None => return,
     };
     let q = parse_query(&req.query);
+
+    if let Some(c) = auth_ctx(&req, &q, &auth, &cfg.token) {
+        if let Ctx::User(s) = &c {
+            if s.must_change_password && !must_change_exempt(&req.method, &req.path) {
+                send_json(
+                    &mut st,
+                    403,
+                    "{\"error\":\"PasswordChangeRequired\",\"message\":\"首次登录请先修改初始密码，再进行其他操作\"}",
+                );
+                return;
+            }
+        }
+        if matches!(c, Ctx::Machine)
+            && req.method == "POST"
+            && !matches!(
+                req.path.as_str(),
+                "/api/incidents/feedback" | "/api/challenge/acknowledge" | "/api/set_mode"
+            )
+        {
+            send_json(
+                &mut st,
+                403,
+                "{\"error\":\"Forbidden\",\"message\":\"机器 token 仅支持状态读取、事件反馈/应答与模式切换\"}",
+            );
+            return;
+        }
+    }
+
+    if req.method == "POST"
+        && bearer(&req).is_none()
+        && !machine_ok(&req, &q, &cfg.token)
+        && cookie_token(&req).is_some()
+        && !origin_ok(&req)
+    {
+        send_json(&mut st, 403, "{\"error\":\"Forbidden\",\"message\":\"跨站请求被拒绝\"}");
+        return;
+    }
 
     if req.method == "GET" && (req.path == "/" || req.path == "/index.html") {
         send_raw(&mut st, 200, "OK", "text/html; charset=utf-8", cfg.html.as_bytes(), &[]);
@@ -302,7 +413,7 @@ fn handle_conn(mut st: TcpStream, bus: Arc<Bus>, auth: Arc<AuthManager>, notifie
     if req.method == "GET" {
         handle_get(&mut st, &req, &q, &bus, &auth, &cfg);
     } else if req.method == "POST" {
-        handle_post(&mut st, &req, &q, &bus, &auth, &notifier, &cfg);
+        handle_post(&mut st, &req, &q, &bus, &auth, &notifier, &cfg, &limiter);
     } else {
         send_json(&mut st, 404, "{\"error\":\"not found\"}");
     }
@@ -462,6 +573,7 @@ fn handle_post(
     auth: &Arc<AuthManager>,
     notifier: &Notifier,
     cfg: &HttpConfig,
+    limiter: &Arc<RateLimiter>,
 ) {
     let data = json_body(req);
     match req.path.as_str() {
@@ -469,12 +581,51 @@ fn handle_post(
             let username = jstr(&data, "username");
             let password = jstr(&data, "password");
             let ip = st.peer_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "unknown".into());
+            let key = format!("login:{}", ip);
+            if !limiter.allow(&key, 5, 60.0) {
+                {
+                    let mut s = bus.lock();
+                    s.events.push(
+                        "LOGIN_LOCKED",
+                        "WARN",
+                        &format!("登录尝试过于频繁，已临时限制（来源 {}）", ip),
+                        "{}",
+                    );
+                }
+                bus.cv.notify_all();
+                let body = format!(
+                    "{{\"success\":false,\"message\":\"{}\"}}",
+                    json::escape("登录尝试过于频繁，请 60 秒后再试")
+                );
+                send_raw(
+                    st,
+                    429,
+                    "Too Many Requests",
+                    "application/json; charset=utf-8",
+                    body.as_bytes(),
+                    &["Retry-After: 60".to_string()],
+                );
+                return;
+            }
             match auth.login(username.trim(), &password, &ip) {
                 Ok((token, sess)) => {
+                    limiter.reset(&key);
+                    {
+                        let mut s = bus.lock();
+                        s.events.push(
+                            "LOGIN_OK",
+                            "INFO",
+                            &format!("成员 [{}] 登录成功（来源 {}）", sess.username, ip),
+                            "{}",
+                        );
+                    }
+                    bus.cv.notify_all();
+                    let secure = if cfg.cookie_secure { "; Secure" } else { "" };
                     let cookie = format!(
-                        "Set-Cookie: safehalo_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
+                        "Set-Cookie: safehalo_session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
                         token,
-                        7 * 24 * 3600
+                        7 * 24 * 3600,
+                        secure
                     );
                     let body = format!(
                         "{{\"success\":true,\"token\":\"{}\",\"user\":{},\"message\":\"登录成功\"}}",
@@ -483,14 +634,40 @@ fn handle_post(
                     );
                     send_raw(st, 200, "OK", "application/json; charset=utf-8", body.as_bytes(), &[cookie]);
                 }
-                Err(msg) => send_json(
-                    st,
-                    401,
-                    &format!("{{\"success\":false,\"message\":\"{}\"}}", json::escape(&msg)),
-                ),
+                Err(msg) => {
+                    {
+                        let mut s = bus.lock();
+                        s.events.push(
+                            "LOGIN_FAILED",
+                            "WARN",
+                            &format!("登录失败：用户 [{}]（来源 {}）", username.trim(), ip),
+                            "{}",
+                        );
+                    }
+                    bus.cv.notify_all();
+                    send_json(
+                        st,
+                        401,
+                        &format!("{{\"success\":false,\"message\":\"{}\"}}", json::escape(&msg)),
+                    );
+                }
             }
         }
         "/api/placement/save" => {
+            let configured = { bus.lock().placement.is_configured };
+            if configured {
+                match auth_ctx(req, q, auth, &cfg.token) {
+                    Some(c) if c.role() == "admin" => {}
+                    Some(_) => {
+                        send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"权限不足，仅管理员可修改守护方案\"}");
+                        return;
+                    }
+                    None => {
+                        send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"初始化已完成，请先登录管理员账号再修改守护方案\"}");
+                        return;
+                    }
+                }
+            }
             let mut p = {
                 let s = bus.lock();
                 s.placement.clone()
@@ -542,6 +719,20 @@ fn handle_post(
             );
         }
         "/api/onboarding/test_push" => {
+            let configured = { bus.lock().placement.is_configured };
+            if configured {
+                match auth_ctx(req, q, auth, &cfg.token) {
+                    Some(c) if c.role() == "admin" => {}
+                    Some(_) => {
+                        send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"权限不足，仅管理员可发送测试通知\"}");
+                        return;
+                    }
+                    None => {
+                        send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"初始化已完成，请先登录管理员账号再发送测试通知\"}");
+                        return;
+                    }
+                }
+            }
             let token = jstr(&data, "pushplus_token");
             let webhook = jstr(&data, "webhook_url");
             let nickname = {
@@ -580,6 +771,15 @@ fn handle_post(
             );
         }
         "/api/challenge/acknowledge" => {
+            let ip = st.peer_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "unknown".into());
+            if !limiter.allow(&format!("ack:{}", ip), 1, 5.0) {
+                send_json(st, 429, "{\"success\":false,\"message\":\"操作过于频繁，请稍后再试\"}");
+                return;
+            }
+            let source = {
+                let s = jstr(&data, "source");
+                if s.is_empty() { "本地按钮/语音安全应答".to_string() } else { s }
+            };
             {
                 let mut s = bus.lock();
                 s.control.ack_safe = true;
@@ -587,7 +787,7 @@ fn handle_post(
                 s.events.push(
                     "CHALLENGE_ACK",
                     "INFO",
-                    "收到本地安全确认应答，疑似跌倒警报已本地解除",
+                    &format!("收到本地安全确认应答（{}，来源 {}），疑似跌倒警报已本地解除", source, ip),
                     "{}",
                 );
             }
@@ -595,6 +795,10 @@ fn handle_post(
             send_json(st, 200, &ok_msg("已收到安全确认应答，疑似跌倒警报已本地解除，未打扰家属。"));
         }
         "/api/incidents/feedback" => {
+            if auth_ctx(req, q, auth, &cfg.token).is_none() {
+                send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"未登录或登录已过期，请重新登录\"}");
+                return;
+            }
             let event_id = jstr(&data, "event_id");
             let is_false = jbool(&data, "is_false_alarm", true);
             let category = jstr(&data, "category");
@@ -628,6 +832,10 @@ fn handle_post(
         }
         "/api/test_push" => match auth_ctx(req, q, auth, &cfg.token) {
             Some(c) if c.role() == "admin" => {
+                if !limiter.allow(&format!("test_push:{}", c.username()), 1, 10.0) {
+                    send_json(st, 429, "{\"success\":false,\"message\":\"测试推送过于频繁，请 10 秒后再试\"}");
+                    return;
+                }
                 let token = jstr(&data, "pushplus_token");
                 let webhook = jstr(&data, "webhook_url");
                 let sms = jstr(&data, "sms_webhook_url");
@@ -684,7 +892,11 @@ fn handle_post(
             None => send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"未登录或登录已过期，请重新登录\"}"),
         },
         "/api/set_mode" => match auth_ctx(req, q, auth, &cfg.token) {
-            Some(c) if c.role() == "admin" => {
+            Some(c) if c.role() == "admin" || matches!(c, Ctx::Machine) => {
+                if !limiter.allow(&format!("set_mode:{}", c.username()), 1, 2.0) {
+                    send_json(st, 429, "{\"success\":false,\"message\":\"模式切换过于频繁，请稍后再试\"}");
+                    return;
+                }
                 let mode = {
                     let m = jstr(&data, "mode");
                     if m.is_empty() { "FALL_GUARD".into() } else { m }
@@ -735,13 +947,17 @@ fn handle_post(
             if let Some(t) = cookie_token(req) {
                 auth.logout(&t);
             }
+            let secure = if cfg.cookie_secure { "; Secure" } else { "" };
             send_raw(
                 st,
                 200,
                 "OK",
                 "application/json; charset=utf-8",
                 ok_msg("已安全退出登录").as_bytes(),
-                &["Set-Cookie: safehalo_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0".to_string()],
+                &[format!(
+                    "Set-Cookie: safehalo_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
+                    secure
+                )],
             );
         }
         "/api/auth/update_password" => match auth_ctx(req, q, auth, &cfg.token) {

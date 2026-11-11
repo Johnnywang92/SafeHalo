@@ -87,9 +87,63 @@ shared_system_state = {
 def log_event(text: str):
     logger.log_event("WEB_PORTAL", text, level="INFO")
 
+
+class _RateLimiter:
+    """按 key 的滑动窗口限速器（内存有上限，防 key 洪泛导致膨胀）。"""
+
+    def __init__(self):
+        self._hits: Dict[str, tuple] = {}
+
+    def allow(self, key: str, limit: int, window_secs: float) -> bool:
+        now = time.time()
+        if len(self._hits) > 4096:
+            self._hits = {k: v for k, v in self._hits.items() if now - v[0] < 60.0}
+            if len(self._hits) > 8192:
+                self._hits.clear()
+        t, n = self._hits.get(key, (now, 0))
+        if now - t >= window_secs:
+            t, n = now, 0
+        n += 1
+        self._hits[key] = (t, n)
+        return n <= limit
+
+    def reset(self, key: str):
+        self._hits.pop(key, None)
+
+
+_rate_limiter = _RateLimiter()
+
+
+def _origin_ok(headers) -> bool:
+    """校验 Origin/Referer 与 Host 一致（防御 CSRF）；无浏览器来源头的非浏览器客户端放行。"""
+    host = (headers.get("Host") or "").lower()
+    for name in ("Origin", "Referer"):
+        v = headers.get(name)
+        if not v:
+            continue
+        rest = v.split("://", 1)[1] if "://" in v else v
+        authority = rest.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        return bool(host) and authority.lower() == host
+    return True
+
+
+def _must_change_exempt(method: str, path: str) -> bool:
+    """强制改密期间仍可访问的公开/改密接口。"""
+    if path == "/api/auth/update_password":
+        return True
+    if method == "GET":
+        return path in (
+            "/", "/index.html", "/api/auth/current", "/api/ha/status", "/api/routine",
+            "/api/neighbor_spectrum", "/api/placement", "/api/multilink",
+            "/api/phase2/pilot", "/api/incidents",
+        )
+    return path in ("/api/auth/login", "/api/auth/logout", "/api/challenge/acknowledge")
+
+
 class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
     HTML_PATH = os.path.join(os.path.dirname(__file__), "web", "index.html")
     routine_history_provider = None
+    cookie_secure = False
 
     def _get_session(self) -> Optional[Dict]:
         """从 Authorization 标头或 Cookie 中提取并验证会话"""
@@ -220,6 +274,9 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
         if not sess:
             self._send_json(401, {"error": "Unauthorized", "message": "未登录或登录已过期，请重新登录"})
             return
+        if sess.get("must_change_password"):
+            self._send_json(403, {"error": "PasswordChangeRequired", "message": "首次登录请先修改初始密码，再进行其他操作"})
+            return
 
         # 2. 获取用户列表 (仅管理员权限)
         if self.path == "/api/users":
@@ -275,14 +332,29 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
 
         client_ip = self.client_address[0] if self.client_address else "未知"
 
-        # 1. 用户登录接口 (公开)
+        # CSRF 防护：仅对携带 Cookie 的非 Bearer 浏览器请求校验来源
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") and self.headers.get("Cookie") and not _origin_ok(self.headers):
+            self._send_json(403, {"error": "Forbidden", "message": "跨站请求被拒绝"})
+            return
+
+        # 1. 用户登录接口 (公开，带限速与审计)
         if self.path == "/api/auth/login":
             username = data.get("username", "").strip()
             password = data.get("password", "")
+            limit_key = f"login:{client_ip}"
+            if not _rate_limiter.allow(limit_key, 5, 60.0):
+                logger.log_event("AUTH", f"登录尝试过于频繁，已临时限制（来源 {client_ip}）", level="WARN")
+                self._send_json(429, {"success": False, "message": "登录尝试过于频繁，请 60 秒后再试"},
+                                extra_headers={"Retry-After": "60"})
+                return
             ok, token_or_msg, user_info = auth_manager.login(username, password, client_ip=client_ip)
             if ok:
+                _rate_limiter.reset(limit_key)
+                logger.log_event("AUTH", f"成员 [{user_info['username']}] 登录成功（来源 {client_ip}）", level="INFO")
+                secure = "; Secure" if self.cookie_secure else ""
                 # 写入安全 Cookie (HttpOnly, SameSite=Lax, 保留 7 天)
-                cookie_str = f"safehalo_session={token_or_msg}; Path=/; HttpOnly; SameSite=Lax; Max-Age={7*24*3600}"
+                cookie_str = f"safehalo_session={token_or_msg}; Path=/; HttpOnly; SameSite=Lax; Max-Age={7*24*3600}{secure}"
                 self._send_json(200, {
                     "success": True,
                     "token": token_or_msg,
@@ -290,11 +362,23 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                     "message": "登录成功"
                 }, extra_headers={"Set-Cookie": cookie_str})
             else:
+                logger.log_event("AUTH", f"登录失败：用户 [{username}]（来源 {client_ip}）", level="WARN")
                 self._send_json(401, {"success": False, "message": token_or_msg})
             return
 
-        # 1.1 首次安装向导 / 摆放位置保存与算法即时适配 (支持免登初始化配置)
+        # 1.1 首次安装向导 / 摆放位置保存与算法即时适配 (未完成初始化时免登，配置完成后需管理员)
         if self.path == "/api/placement/save":
+            if placement_adapter.current_config.is_configured:
+                sess = self._get_session()
+                if not sess:
+                    self._send_json(401, {"error": "Unauthorized", "message": "初始化已完成，请先登录管理员账号再修改守护方案"})
+                    return
+                if sess.get("must_change_password"):
+                    self._send_json(403, {"error": "PasswordChangeRequired", "message": "首次登录请先修改初始密码，再进行其他操作"})
+                    return
+                if sess.get("role") != "admin":
+                    self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可修改守护方案"})
+                    return
             r_type = data.get("room_type", "LIVING_ROOM")
             r_name = data.get("room_name", "客厅")
             m_height = data.get("mount_height", "MID_DESK")
@@ -370,8 +454,19 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
-        # 1.15 首次安装向导：发送温和的“平安测试通知”到手机 (支持向导内直接验证)
+        # 1.15 首次安装向导：发送温和的“平安测试通知”到手机 (未完成初始化时免登，配置完成后需管理员)
         if self.path == "/api/onboarding/test_push":
+            if placement_adapter.current_config.is_configured:
+                sess = self._get_session()
+                if not sess:
+                    self._send_json(401, {"error": "Unauthorized", "message": "初始化已完成，请先登录管理员账号再发送测试通知"})
+                    return
+                if sess.get("must_change_password"):
+                    self._send_json(403, {"error": "PasswordChangeRequired", "message": "首次登录请先修改初始密码，再进行其他操作"})
+                    return
+                if sess.get("role") != "admin":
+                    self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可发送测试通知"})
+                    return
             token = (data.get("pushplus_token") or "").strip()
             webhook_url = (data.get("webhook_url") or "").strip()
             nickname = (data.get("care_nickname") or placement_adapter.current_config.care_nickname or "家里长辈").strip()
@@ -401,9 +496,13 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
-        # 1.2 阶段 2：本地交互质询安全应答接口 (支持老人一键按键/语音网关免登取消误报)
+        # 1.2 阶段 2：本地交互质询安全应答接口 (保留免登以便老人一键按键/语音网关应答，但限速并审计来源)
         if self.path == "/api/challenge/acknowledge":
+            if not _rate_limiter.allow(f"ack:{client_ip}", 1, 5.0):
+                self._send_json(429, {"success": False, "message": "操作过于频繁，请稍后再试"})
+                return
             source = data.get("source", "本地按钮/语音安全应答")
+            logger.log_event("CHALLENGE_ACK", f"收到本地安全确认应答（{source}，来源 {client_ip}），疑似跌倒警报已本地解除", level="INFO")
             if hasattr(SafeHaloWebHandler, "on_challenge_acknowledge") and SafeHaloWebHandler.on_challenge_acknowledge:
                 SafeHaloWebHandler.on_challenge_acknowledge(source)
             pilot_manager.record_challenge_intercept(household_id=data.get("household_id"))
@@ -415,8 +514,15 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
-        # 1.3 阶段 2：小程序端/家属端事件确认与误报反馈回调 (支持小程序 Webhook 直接回调)
+        # 1.3 阶段 2：小程序端/家属端事件确认与误报反馈回调 (需登录态或机器凭据)
         if self.path == "/api/incidents/feedback":
+            sess = self._get_session()
+            if not sess:
+                self._send_json(401, {"error": "Unauthorized", "message": "未登录或登录已过期，请重新登录"})
+                return
+            if sess.get("must_change_password"):
+                self._send_json(403, {"error": "PasswordChangeRequired", "message": "首次登录请先修改初始密码，再进行其他操作"})
+                return
             evt_id = data.get("event_id")
             is_false = bool(data.get("is_false_alarm", True))
             cat = data.get("category", "other")
@@ -451,6 +557,9 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
         if not sess:
             self._send_json(401, {"error": "Unauthorized", "message": "未登录或登录已过期，请重新登录"})
             return
+        if sess.get("must_change_password") and not _must_change_exempt("POST", self.path):
+            self._send_json(403, {"error": "PasswordChangeRequired", "message": "首次登录请先修改初始密码，再进行其他操作"})
+            return
 
         # 2. 用户登出
         if self.path == "/api/auth/logout":
@@ -460,7 +569,8 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 if part.startswith("safehalo_session="):
                     auth_manager.logout(part[len("safehalo_session="):].strip())
             # 清除 Cookie
-            clear_cookie = "safehalo_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+            secure = "; Secure" if self.cookie_secure else ""
+            clear_cookie = f"safehalo_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure}"
             self._send_json(200, {"success": True, "message": "已安全退出登录"}, extra_headers={"Set-Cookie": clear_cookie})
             return
 
@@ -499,6 +609,9 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/test_push":
             if sess.get("role") != "admin":
                 self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可触发测试推送"})
+                return
+            if not _rate_limiter.allow(f"test_push:{sess['username']}", 1, 10.0):
+                self._send_json(429, {"success": False, "message": "测试推送过于频繁，请 10 秒后再试"})
                 return
             token = data.get("pushplus_token", "").strip()
             webhook_url = data.get("webhook_url", "").strip()
@@ -545,6 +658,9 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             if sess.get("role") != "admin":
                 self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可修改安防守护模式"})
                 return
+            if not _rate_limiter.allow(f"set_mode:{sess['username']}", 1, 2.0):
+                self._send_json(429, {"success": False, "message": "模式切换过于频繁，请稍后再试"})
+                return
             mode = data.get("mode", "FALL_GUARD")
             shared_system_state["security_mode"] = mode
             if hasattr(SafeHaloWebHandler, "on_mode_changed") and SafeHaloWebHandler.on_mode_changed:
@@ -584,12 +700,14 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
 
         self.send_error(404, "Not Found")
 
-def start_portal_server(port: int = 8080, host: str = "0.0.0.0"):
+def start_portal_server(port: int = 8080, host: str = "0.0.0.0", cookie_secure: bool = False):
     """
     启动 SafeHalo Web 配置与远程管理服务
     :param port: 监听端口 (默认 8080)
     :param host: 监听地址 (默认 0.0.0.0，允许局域网与远程穿透访问)
+    :param cookie_secure: 经 HTTPS 反向代理部署时置 True，为会话 Cookie 添加 Secure 标记
     """
+    SafeHaloWebHandler.cookie_secure = cookie_secure
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer((host, port), SafeHaloWebHandler) as httpd:
         print(f"\n{'='*65}")

@@ -172,7 +172,21 @@ def test_http(work):
                                   {"username": "admin", "password": "admin123"})
         token = body.get("token", "") if isinstance(body, dict) else ""
         check("admin login", status == 200 and body.get("success") is True and len(token) == 64)
+        check("default admin flagged must_change",
+              isinstance(body, dict) and body.get("user", {}).get("must_change_password") is True)
         auth = {"Authorization": "Bearer " + token}
+
+        status, body, _ = request("GET", base + "/api/status", headers=auth)
+        check("must-change blocks sensitive op",
+              status == 403 and isinstance(body, dict) and body.get("error") == "PasswordChangeRequired")
+        status, _, _ = request("POST", base + "/api/auth/update_password",
+                               {"old_password": "admin123", "new_password": "Admin@2026x"}, headers=auth)
+        check("forced password change", status == 200)
+        status, body, _ = request("POST", base + "/api/auth/login",
+                                  {"username": "admin", "password": "Admin@2026x"})
+        token = body.get("token", "") if isinstance(body, dict) else ""
+        auth = {"Authorization": "Bearer " + token}
+        check("re-login after password change", status == 200 and len(token) == 64)
 
         status, body, _ = request("GET", base + "/api/status", headers=auth)
         keys = body if isinstance(body, dict) else {}
@@ -234,6 +248,84 @@ def test_http(work):
     finally:
         stop(proc)
         sink.close()
+
+
+def test_security(work):
+    store = work / "sec_store"
+    data = work / "sec_data"
+    port = free_port()
+    udp = free_port()
+    proc = launch([
+        "--udp", f"127.0.0.1:{udp}",
+        "--http", f"127.0.0.1:{port}",
+        "--storage-dir", str(store),
+        "--data-dir", str(data),
+        "--api-token", "machinetok",
+        "--run-secs", "90",
+    ])
+    base = f"http://127.0.0.1:{port}"
+    try:
+        if not check("security service starts", wait_port(port)):
+            return
+        machine = {"Authorization": "Bearer machinetok"}
+
+        check("anonymous feedback rejected",
+              request("POST", base + "/api/incidents/feedback", {"event_id": "x"})[0] == 401)
+        check("anonymous onboarding allowed pre-config",
+              request("POST", base + "/api/onboarding/test_push", {"care_nickname": "测试"})[0] == 200)
+        check("anonymous placement pre-config",
+              request("POST", base + "/api/placement/save",
+                      {"room_name": "客厅", "care_nickname": "奶奶"})[0] == 200)
+        check("anonymous placement post-config rejected",
+              request("POST", base + "/api/placement/save", {"room_name": "x"})[0] == 401)
+        check("anonymous onboarding post-config rejected",
+              request("POST", base + "/api/onboarding/test_push", {})[0] == 401)
+
+        s1 = request("POST", base + "/api/challenge/acknowledge", {"source": "test"})[0]
+        s2 = request("POST", base + "/api/challenge/acknowledge", {"source": "test"})[0]
+        check("challenge ack login-free", s1 == 200)
+        check("challenge ack rate-limited", s2 == 429)
+
+        check("machine reads status", request("GET", base + "/api/status", headers=machine)[0] == 200)
+        check("machine cannot manage users",
+              request("POST", base + "/api/users/create",
+                      {"username": "x", "password": "whatever123"}, headers=machine)[0] == 403)
+        check("machine cannot clear logs",
+              request("POST", base + "/api/logs/clear", {}, headers=machine)[0] == 403)
+        check("machine can set mode",
+              request("POST", base + "/api/set_mode", {"mode": "AWAY_SECURITY"}, headers=machine)[0] == 200)
+        check("machine can submit feedback",
+              request("POST", base + "/api/incidents/feedback",
+                      {"event_id": "x", "is_false_alarm": True}, headers=machine)[0] == 200)
+
+        status, body, _ = request("POST", base + "/api/auth/login",
+                                  {"username": "admin", "password": "admin123"})
+        aauth = {"Authorization": "Bearer " + (body.get("token", "") if isinstance(body, dict) else "")}
+        check("weak password rejected",
+              request("POST", base + "/api/auth/update_password",
+                      {"old_password": "admin123", "new_password": "123"}, headers=aauth)[0] == 400)
+        check("default password reuse rejected",
+              request("POST", base + "/api/auth/update_password",
+                      {"old_password": "admin123", "new_password": "admin123"}, headers=aauth)[0] == 400)
+        request("POST", base + "/api/auth/update_password",
+                {"old_password": "admin123", "new_password": "Valid@2026x"}, headers=aauth)
+        status, body, _ = request("POST", base + "/api/auth/login",
+                                  {"username": "admin", "password": "Valid@2026x"})
+        atok = body.get("token", "") if isinstance(body, dict) else ""
+        cookie = {"Cookie": "safehalo_session=" + atok}
+
+        foreign = dict(cookie, Origin="http://evil.example")
+        check("cross-origin cookie POST rejected",
+              request("POST", base + "/api/set_mode", {"mode": "FALL_GUARD"}, headers=foreign)[0] == 403)
+        same = dict(cookie, Origin=f"http://127.0.0.1:{port}")
+        check("same-origin cookie POST allowed",
+              request("POST", base + "/api/set_mode", {"mode": "FALL_GUARD"}, headers=same)[0] == 200)
+
+        codes = [request("POST", base + "/api/auth/login",
+                         {"username": "admin", "password": "wrongpass"})[0] for _ in range(6)]
+        check("login rate limit kicks in", codes[:5] == [401] * 5 and codes[5] == 429, str(codes))
+    finally:
+        stop(proc)
 
 
 def alarm_replay(work):
@@ -359,6 +451,7 @@ def main():
 
     print(f"work dir: {work}")
     test_http(work)
+    test_security(work)
     alarm_replay(work)
     serial_actuation(work, scenarios)
     serial_reconnect(work, scenarios)
