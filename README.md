@@ -1,5 +1,12 @@
 # SafeHalo
 
+[![JohnnyBoyStudio](https://img.shields.io/badge/Crafted_by-JohnnyBoyStudio-1d1d1f?style=flat-square)](https://johnnyboystudio.com/)
+[![Website](https://img.shields.io/badge/Website-johnnyboystudio.com-0071e3?style=flat-square)](https://johnnyboystudio.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+
+> **SafeHalo** 是由 [JohnnyBoyStudio](https://johnnyboystudio.com/)（因自身所需而造的专属应用工坊）孵化与维护的开源项目。  
+> 探索更多原生应用、极客实践与作品：👉 **[https://johnnyboystudio.com/](https://johnnyboystudio.com/)**
+
 SafeHalo 是一个基于低功耗物联网传感与信号分析的跌倒检测与主动安全守护系统。
 
 ## 当前进度：阶段 1 & 阶段 2（Wi-Fi CSI 可行性验证 + 闭环调参 & 3–5 户入户试点）
@@ -12,6 +19,7 @@ SafeHalo 是一个基于低功耗物联网传感与信号分析的跌倒检测�
 
 ## 文档导航
 
+- 工坊主页与系列作品：[JohnnyBoyStudio (https://johnnyboystudio.com/)](https://johnnyboystudio.com/)
 - 纯路由器方案操作指南：[docs/pure_router_guide.md](docs/pure_router_guide.md)
 - 阶段 1 完整规划文档：[docs/phase1_plan.md](docs/phase1_plan.md)
 - 阶段 2 闭环验证与 3–5 户试点指南：[docs/phase2_plan.md](docs/phase2_plan.md)
@@ -447,7 +455,21 @@ SafeHalo/
 
 ---
 
+## 关于 JohnnyBoyStudio
+
+SafeHalo 由 [JohnnyBoyStudio](https://johnnyboystudio.com/) 孵化与维护。
+
+> **JohnnyBoyStudio** —— 因自身所需而造的专属应用工坊。  
+> 主打现代独立开发、Vibecoding 与极客动手精神，专注为 macOS、iOS 及物联网智能硬件定制开发实用、利落的原生工具与安全守护方案。  
+> 
+> 🌐 **官方网站与作品展示**：[https://johnnyboystudio.com/](https://johnnyboystudio.com/)  
+> 欢迎访问工坊主页了解更多独立开发手记、开源工具与创新项目！
+
+---
+
 ## 许可证 (License)
 
-本项目基于 [MIT 许可证](LICENSE) 开源，版权所有 (c) 2026 JohnnyBoyStudio。
+本项目基于 [MIT 许可证](LICENSE) 开源，版权所有 (c) 2026 [JohnnyBoyStudio](https://johnnyboystudio.com/)。
+
+
 
