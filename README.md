@@ -434,6 +434,7 @@ python3 scripts/evaluator.py --csi-file experiments/csi_E1_empty_*.csv
 
 ```text
 SafeHalo/
+├── LICENSE                 # 开源许可证 (MIT)
 ├── README.md               # 项目概览、部署流程与快速上手
 ├── docs/                   # 阶段规划、架构设计、部署与集成文档
 ├── experiments/            # 实验方案、记录表、Rust daemon 与验证套件
@@ -443,3 +444,10 @@ SafeHalo/
 ├── tests/                  # Python 单元测试
 └── data/                   # 本地用户数据库（运行时生成）
 ```
+
+---
+
+## 许可证 (License)
+
+本项目基于 [MIT 许可证](LICENSE) 开源，版权所有 (c) 2026 JohnnyBoyStudio。
+
