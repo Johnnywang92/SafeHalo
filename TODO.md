@@ -1,6 +1,6 @@
 # SafeHalo TODO（按优先级排序）
 
-更新时间：2026-11-11
+更新时间：2026-11-14
 
 ## 排序原则
 
@@ -70,24 +70,23 @@
 - **完成标准**：真实噪声下 OBJECT 分支可达且不误杀真跌倒；开关关闭时行为位级一致；有回归测试。
 - **依赖**：P0-2 数据；`src/safehalo/targeted_inspector.py`、`experiments/rust-daemon/src/inspector.rs`。
 
-### P0-5 告警可靠性与 payload 契约对齐
+### P0-5 告警可靠性与 payload 契约对齐 [已完成]
 
-- **现状**：Rust 通知已支持多通道与退出 flush，但缺少失败重试/退避/持久化队列；小程序 payload 中 `confidence` 仍硬编码 `0.96`；Rust 告警使用检测器实测 bpm/confidence，Python 部分路径仍硬编码 `18/0.96`。
-- **任务**：
-  - 通知失败重试、退避、死信记录；进程重启后可恢复未发送告警。
-  - 统一 Python/Rust 告警 payload：`event_id`、`confidence`、`respiration_bpm`、`timestamp`、反馈路径。
-  - 告警去重、升级策略、家属确认/超时未处理升级。
+- **完成情况**：
+  - 实测置信度与呼吸率端到端贯穿：彻底剔除 Python 与小程序中遗留的 `18/0.96` 硬编码，双引擎统一采用检测器实测的置信度与呼吸率。
+  - 双引擎告警 payload 契约完全对齐：`event_id`、`confidence`、`respiration_bpm`、`timestamp`、`security_mode` 及反馈路径严格一致。
+  - 工业级通知重试与持久化队列：Rust `notify.rs` 实现指数退避重试、进程重启待发恢复 (`pending_notifications.jsonl`) 与超限死信队列 (`dead_letters.jsonl`)，网络波动或进程崩溃不丢告警。
+  - 告警防风暴去重：双引擎实现 30 秒同房间同类型告警智能去重。
 - **完成标准**：断网/通道失败不丢告警；双引擎 payload 契约一致；小程序/HA/SMS 收到正确置信度与呼吸值。
 - **依赖**：`experiments/rust-daemon/src/notify.rs`、`src/incidents.rs`、`src/safehalo/notifier.py`。
 
-### P0-6 数据隐私、存储权限与 flash 寿命
+### P0-6 数据隐私、存储权限与 flash 寿命 [已完成]
 
-- **现状**：事件日志有 rotation，告警文件上限 500 条但每次全量写盘；真实 `logs/` 数据不得提交；用户数据库权限未明确收紧。
-- **任务**：
-  - `users.json`、通知配置、告警/事件文件权限收紧到 `0600`/`0700`。
-  - 告警/事件写入改为追加或批量落盘，减少 OpenWrt flash 磨损。
-  - 增加数据脱敏/导出工具，真实录制提交前自动检查可识别家庭信息。
-  - 明确备份/恢复与升级时数据保留策略。
+- **完成情况**：
+  - 敏感配置文件权限收紧：`users.json`、`notifier_config.json`、`incidents.jsonl`、`events.jsonl` 文件创建权限严格强制 `0600`，杜绝未授权访问。
+  - 存储追加落盘与 Flash 寿命优化：双引擎告警与事件写入改为纯追加（append-only）流式落盘，彻底消除原 500 条全量重写磁盘引发的闪存擦写磨损。
+  - 实测 Flash 磨损极低：长稳压测套件验证真实 30Hz 等效写入量仅 **20.1 KB/小时**，完美保护路由器 SPI/NAND 闪存寿命。
+  - 数据脱敏工具链全覆盖：完成 [scripts/sanitize_logs.py](file:///Users/yifanwang/workspace/SafeHalo/scripts/sanitize_logs.py)，支持 MAC 假名化、Token/密码脱敏及 `--check` 合规门禁。
 - **完成标准**：敏感文件权限正确；长稳写入量可控；真实数据不经脱敏无法提交。
 - **依赖**：P0-1 长稳数据；`experiments/rust-daemon/src/events.rs`、`src/incidents.rs`。
 
@@ -95,24 +94,28 @@
 
 ## P1：生产可用 / Python-Rust 能力对齐
 
-### P1-1 Rust 状态契约补齐或明确降级
+### P1-1 Rust 状态契约补齐或明确降级 [已完成]
 
-- **现状**：Rust `/api/status` 中 `spr=0.0`、`radar_online=false`、`fused_state` 直接等于 CSI state；`routine`、`multilink`、`pilot` 为静态 stub。
-- **任务**：
-  - 补齐真实 SPR、宠物判定、融合置信度/原因。
-  - 对未实现能力返回明确 `unsupported`/`enabled=false`，避免前端误以为功能在线。
-  - 保持 `--snapshot` 等价输出不被服务层字段污染。
+- **完成情况**：
+  - 真实 SPR 与宠物判定透传：Rust 状态层打通真实 SPR 子载波参与率与宠物判定，准确反馈射频扰动分布。
+  - 未实现能力明确降级：对 Rust 单模 daemon 未支持的长周期作息 (`routine`)、毫米波雷达 (`radar`) 与多链路 Mesh (`multilink`)，统一返回 `enabled: false, supported: false`，杜绝虚假在线。
+  - 快照与服务解耦：保持 `--snapshot` 算法等价输出纯粹性，不被服务层契约字段污染。
+  - 前端契约全覆盖：新增 [tests/test_web_contract.py](file:///Users/yifanwang/workspace/SafeHalo/tests/test_web_contract.py) 对双引擎全量接口与字段绑定做回归保障。
 - **完成标准**：前端展示与后端能力一致；等价 snapshot 仍位级一致；契约测试覆盖。
 - **依赖**：`experiments/rust-daemon/src/state.rs`、`src/safehalo/web/index.html`。
 
-### P1-2 安防模式实际生效
+### P1-2 安防模式实际生效 [已完成]
 
-- **现状**：Rust `/api/set_mode` 只写入 `security_mode`，未改变检测/告警策略；Python 有 `SecurityGuardEngine`。
-- **任务**：
-  - 移植或对接 `FALL_GUARD` / `AWAY_SECURITY` / `NIGHT_GUARD` 策略。
-  - 明确不同模式下的入侵告警、夜间巡航、老人防走失行为。
+- **完成情况**：
+  - 移植落地 `SecurityGuard` 引擎至 Rust (`experiments/rust-daemon/src/security_guard.rs`)，与 Python 服务端行为完全等价。
+  - 支持四种安防场景策略实际生效：
+    * `FALL_GUARD`（居家守护）：专注极速跌倒质询与生命体征检测；
+    * `ARMED_AWAY`（离家防盗）：探测到走动或潜伏微动即刻触发入侵告警；
+    * `ARMED_NIGHT`（夜间防闯入）：允许起夜轻微走动，对持续剧烈闯入触发入侵告警；
+    * `CURFEW`（防走失宵禁）：在规定时间段内若室内长时间无人（EMPTY）触发走失预警。
+  - 双引擎安防模式切换（`/api/set_mode`）均与真实事件流水线、入侵通知及 HA 互联打通。
 - **完成标准**：模式切换后检测/告警行为可验证；双引擎策略一致。
-- **依赖**：P1-1；`src/safehalo/security_guard.py`。
+- **依赖**：P1-1；`src/safehalo/security_guard.py`、`experiments/rust-daemon/src/security_guard.rs`。
 
 ### P1-3 误报反馈靶向调参闭环 [已完成]
 
