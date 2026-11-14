@@ -231,11 +231,26 @@ class IncidentFeedbackManager:
         except Exception as e:
             logger.error(f"[IncidentManager] 加载历史告警事件失败: {e}")
 
+    def _append_record(self, rec: AlertIncidentRecord):
+        try:
+            with open(self.incidents_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(asdict(rec), ensure_ascii=False) + "\n")
+            try:
+                os.chmod(self.incidents_file, 0o600)
+            except OSError:
+                pass
+        except Exception as e:
+            logger.error(f"[IncidentManager] 追加告警事件记录失败: {e}")
+
     def _save_all(self):
         try:
             with open(self.incidents_file, "w", encoding="utf-8") as f:
                 for rec in self.incidents.values():
                     f.write(json.dumps(asdict(rec), ensure_ascii=False) + "\n")
+            try:
+                os.chmod(self.incidents_file, 0o600)
+            except OSError:
+                pass
         except Exception as e:
             logger.error(f"[IncidentManager] 写入告警事件记录失败: {e}")
 
@@ -274,7 +289,12 @@ class IncidentFeedbackManager:
 
         with self._lock:
             self.incidents[evt_id] = rec
-            self._save_all()
+            if len(self.incidents) > 500:
+                oldest_key = min(self.incidents.keys(), key=lambda k: self.incidents[k].timestamp)
+                del self.incidents[oldest_key]
+                self._save_all()
+            else:
+                self._append_record(rec)
 
         return rec
 

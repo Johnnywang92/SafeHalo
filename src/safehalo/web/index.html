@@ -740,16 +740,17 @@
               <td><strong>零门槛</strong>，无需拆机刷固件。路由器只需固定 2.4GHz 信道 20MHz，ESP32-S3 负责精准测 CSI。</td>
             </tr>
             <tr>
-              <td><strong>形态 B：纯路由器自采自算（极客进阶）</strong></td>
-              <td><strong>Qualcomm Atheros 芯片路由器</strong><br>(可刷 OpenWrt 并打 Atheros CSI 补丁)</td>
+              <td><strong>形态 B：纯路由器自采自算（前沿实验方向 · 暂无预编译固件）</strong></td>
+              <td><strong>Qualcomm Atheros 芯片路由器</strong><br>(AR9344 / AR9580 / QCA9558 等，需自行编译 OpenWrt + Atheros CSI Tool 补丁内核)</td>
               <td>0 元</td>
-              <td>利用路由器自身 Wi-Fi 芯片提取 CSI，难度极高，需要刷写改动内核的 OpenWrt。</td>
+              <td>利用路由器自身 Wi-Fi 芯片提取 CSI。<strong>仅供前沿极客与学术探索</strong>，难度极高且稳定性欠佳；普通家庭与入户试点请务必使用形态 A。</td>
             </tr>
           </table>
 
-          <h3 style="margin-top: 20px;">形态 B 完美支持的经典旧路由器型号库</h3>
+          <h3 style="margin-top: 20px;">形态 B 理论适用的经典旧路由器芯片与型号（实验参考）</h3>
+          <p style="font-size: 13px; color: #666; margin-bottom: 8px;">以下设备搭载 Atheros 芯片且理论支持 <code>ath9k-htc</code> / <code>Atheros-CSI-Tool</code> 驱动提取，但仓库暂未提供开箱即用固件镜像：</p>
           <ul>
-            <li><strong>TP-Link</strong>: TL-WDR4300, TL-WDR3600, TL-WR703N, TL-WR841N v8/v9, TL-WDR7500 v2</li>
+            <li><strong>TP-Link</strong>: TL-WDR4300, TL-WDR3600, TL-WR703N, TL-WR841N v8/v9, TL-WDR7500 v2 (AR9344 / AR9558)</li>
             <li><strong>D-Link</strong>: DIR-825 B1, DIR-505</li>
             <li><strong>水星 / 迅捷</strong>: MW4530R (AR9344)</li>
             <li><strong>网件 Netgear</strong>: WNDR3700 v4, WNDR3800</li>

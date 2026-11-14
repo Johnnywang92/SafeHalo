@@ -131,6 +131,11 @@ impl EventLog {
         rotate(&self.log_path);
         if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&self.events_path) {
             let _ = writeln!(f, "{}", rec.to_json());
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&self.events_path, fs::Permissions::from_mode(0o600));
+            }
         }
         if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&self.log_path) {
             let _ = writeln!(
@@ -141,6 +146,11 @@ impl EventLog {
                 rec.event_type,
                 rec.message
             );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&self.log_path, fs::Permissions::from_mode(0o600));
+            }
         }
     }
 

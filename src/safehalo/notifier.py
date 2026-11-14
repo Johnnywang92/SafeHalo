@@ -41,6 +41,8 @@ class AlertNotifier:
         self.webhook_url = webhook_url
         self.ha_webhook_url = ha_webhook_url
         self.sms_webhook_url = sms_webhook_url
+        self._last_alert_room: str = ""
+        self._last_alert_time: float = 0.0
 
         # 若未显式传入，尝试加载已持久化的配置
         self._load_persisted_config()
@@ -95,22 +97,52 @@ class AlertNotifier:
             os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
+            try:
+                os.chmod(self.config_file, 0o600)
+            except OSError:
+                pass
         except Exception as e:
             logger.error(f"[Notifier] 保存通知配置失败: {e}")
         return payload
 
-    def send_fall_alarm(self, room_name: str = "老人卧室", confidence: str = "高", details: str = "") -> bool:
+    def send_fall_alarm(
+        self,
+        room_name: str = "老人卧室",
+        confidence: str = "高",
+        details: str = "",
+        bpm: float = 18.0,
+        event_id: str = "",
+        household_id: str = "H01",
+    ) -> bool:
         """
-        发送高优先级跌倒警报至家属手机
+        发送高优先级跌倒警报至家属手机 (支持去重与各通道统一契约)
         """
+        import time
+
+        # 去重保护：30秒内同房间相同级别报警不重复弹窗打扰家属 (手动测试除外)
+        now_ts = time.time()
+        if (
+            room_name == self._last_alert_room
+            and (now_ts - self._last_alert_time) < 30.0
+            and event_id != "evt_test"
+        ):
+            logger.info(f"[Notifier 去重] 30秒内忽略房间 [{room_name}] 的重复跌倒推送")
+            return True
+        self._last_alert_room = room_name
+        self._last_alert_time = now_ts
+
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         title = f"🚨【紧急预警】SafeHalo 检测到疑似跌倒！"
+        bpm_line = f"- **呼吸估计**: {bpm:.0f} bpm\n" if bpm > 0 else ""
+        evt_line = f"- **事件编号**: {event_id}\n" if event_id else ""
         content = (
             f"### 紧急安全事件通知\n\n"
             f"- **监测位置**: {room_name}\n"
             f"- **发生时间**: {now_str}\n"
             f"- **预警级别**: 红色紧急（检测到剧烈冲击并持续倒地静止）\n"
             f"- **置信度**: {confidence}\n"
+            f"{bpm_line}"
+            f"{evt_line}"
             f"- **附带信息**: {details}\n\n"
             f"> 请立即通过家中监控或电话确认老人安全！如无法取得联系，请尽快前往或联系邻居协助。"
         )
@@ -135,7 +167,10 @@ class AlertNotifier:
                 event="fall_alarm",
                 room_name=room_name,
                 confidence=confidence,
-                details=details
+                details=details,
+                bpm=bpm,
+                event_id=event_id,
+                household_id=household_id,
             ) or success
 
         # 5. 短信 / 语音电话强提醒外呼网关 Webhook
@@ -145,6 +180,10 @@ class AlertNotifier:
                 room_name=room_name,
                 title=title,
                 details=details,
+                confidence=confidence,
+                bpm=bpm,
+                event_id=event_id,
+                household_id=household_id,
             ) or success
 
         if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.ha_webhook_url or self.sms_webhook_url):
@@ -246,25 +285,51 @@ class AlertNotifier:
         }
         return self._http_post_json(self.webhook_url, payload)
 
-    def _send_ha_webhook(self, event: str, room_name: str, confidence: str, details: str) -> bool:
+    def _send_ha_webhook(
+        self,
+        event: str,
+        room_name: str,
+        confidence: str,
+        details: str,
+        bpm: float = 0.0,
+        event_id: str = "",
+        household_id: str = "H01",
+    ) -> bool:
         """向 Home Assistant 发送自动化触发载荷"""
         payload = {
             "source": "SafeHalo",
             "event": event,
+            "household_id": household_id,
             "room": room_name,
             "confidence": confidence,
+            "respiration_bpm": bpm,
+            "event_id": event_id,
             "details": details,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
         return self._http_post_json(self.ha_webhook_url, payload)
 
-    def _send_sms_voice_webhook(self, event: str, room_name: str, title: str, details: str) -> bool:
+    def _send_sms_voice_webhook(
+        self,
+        event: str,
+        room_name: str,
+        title: str,
+        details: str,
+        confidence: str = "高",
+        bpm: float = 0.0,
+        event_id: str = "",
+        household_id: str = "H01",
+    ) -> bool:
         """向短信/语音外呼网关发送告警触发载荷"""
         payload = {
             "source": "SafeHalo",
             "event": event,
+            "household_id": household_id,
             "room": room_name,
             "title": title,
+            "confidence": confidence,
+            "respiration_bpm": bpm,
+            "event_id": event_id,
             "details": details,
             "priority": "CRITICAL",
             "timestamp": datetime.now().isoformat(),

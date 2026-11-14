@@ -221,7 +221,10 @@ class RouterCSIDetector:
                     logger.log_fall_confirmed(verdict.details, verdict.respiration_bpm, verdict.confidence)
                     self._switch_state(HumanState.FALL_CONFIRMED, features)
                     if self.on_fall_alarm:
-                        self.on_fall_alarm(features)
+                        try:
+                            self.on_fall_alarm(features, verdict)
+                        except TypeError:
+                            self.on_fall_alarm(features)
                     return self.current_state
 
                 elif verdict.state == TargetedInspectionState.VERDICT_RECOVERED:

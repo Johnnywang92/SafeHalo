@@ -104,6 +104,17 @@ impl IncidentStore {
         IncidentStore { file, items }
     }
 
+    fn append_record(&self, rec: &Incident) {
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&self.file) {
+            let _ = writeln!(f, "{}", rec.to_json());
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&self.file, fs::Permissions::from_mode(0o600));
+            }
+        }
+    }
+
     fn save(&self) {
         let tmp = self.file.with_extension("jsonl.tmp");
         if let Ok(mut f) = fs::File::create(&tmp) {
@@ -111,6 +122,11 @@ impl IncidentStore {
                 let _ = writeln!(f, "{}", rec.to_json());
             }
             let _ = fs::rename(&tmp, &self.file);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&self.file, fs::Permissions::from_mode(0o600));
+            }
         }
     }
 
@@ -150,8 +166,10 @@ impl IncidentStore {
         self.items.push(rec.clone());
         if self.items.len() > 500 {
             self.items.remove(0);
+            self.save();
+        } else {
+            self.append_record(&rec);
         }
-        self.save();
         rec
     }
 

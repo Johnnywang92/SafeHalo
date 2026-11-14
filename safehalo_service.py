@@ -298,27 +298,33 @@ class SafeHaloSupervisor:
         )
         shared_system_state["routine"] = self.routine_monitor.get_summary()
 
-    def _on_fall_alarm(self, features: CSIFeatures):
+    def _on_fall_alarm(self, features: CSIFeatures, verdict=None):
         room = shared_system_state.get("multilink", {}).get("active_room") or self.placement_adapter.current_config.room_name
-        details = f"经历剧烈冲击→持续静止→本地质询无应答，均值方差: {features.mean_variance:.6f}"
+        confidence = float(getattr(verdict, "confidence", 0.0) or 0.96)
+        bpm = float(getattr(verdict, "respiration_bpm", 0.0) or 18.0)
+        details = getattr(verdict, "details", "") or f"经历剧烈冲击→持续静止→本地质询无应答，均值方差: {features.mean_variance:.6f}"
         logger.log_fall_confirmed(
             details=details,
-            bpm=18.0,
-            confidence=0.96
+            bpm=bpm,
+            confidence=confidence
         )
         # 阶段 2: 记录告警事件并同步推送微信小程序订阅消息
-        self.incident_manager.record_incident(
+        inc = self.incident_manager.record_incident(
             room_name=room,
             event_type="FALL_ALARM",
-            confidence=0.96,
-            respiration_bpm=18.0,
+            confidence=confidence,
+            respiration_bpm=bpm,
             details=details,
             household_id=self.pilot_manager.active_household_id,
         )
+        event_id = inc.event_id if inc else ""
         self.notifier.send_fall_alarm(
             room_name=room,
-            confidence="96%",
-            details="倒地后经声光质询无应答且长时间未探测到自主起身活动"
+            confidence=f"{int(confidence * 100)}%",
+            details="倒地后经声光质询无应答且长时间未探测到自主起身活动",
+            bpm=bpm,
+            event_id=event_id,
+            household_id=self.pilot_manager.active_household_id,
         )
 
     def _on_intruder_alarm(self, alert_level, msg: str, features: CSIFeatures):

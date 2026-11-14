@@ -17,6 +17,7 @@ mod json;
 mod notify;
 mod object_confirm;
 mod pet;
+mod security;
 mod serial;
 mod state;
 mod timefmt;
@@ -36,6 +37,7 @@ use http::HttpConfig;
 use incidents::IncidentStore;
 use notify::{Notice, NotifyConfig, Notifier};
 use object_confirm::{DEFAULT_CV_THRESHOLD, MIN_INTERVALS};
+use security::{SecurityGuard, SecurityMode};
 use state::{snapshot_neighbor, Bus, Placement, Shared};
 
 struct Args {
@@ -275,6 +277,7 @@ struct Pipeline {
     signal: SignalFilter,
     extractor: Extractor,
     detector: Detector,
+    security: SecurityGuard,
     packets: u64,
     parse_dropped: u64,
     neighbor_rejected: u64,
@@ -292,19 +295,32 @@ enum Action {
 }
 
 fn drain_control(p: &mut Pipeline, bus: &Arc<Bus>) {
-    let (trigger, ack) = {
+    let (trigger, ack, sec_mode, tuned, is_configured) = {
         let mut s = bus.lock();
         let t = s.control.trigger_inspect;
         let a = s.control.ack_safe;
+        let m = s.security_mode.clone();
+        let tuned = s.placement.tuned.clone();
+        let conf = s.placement.is_configured;
         s.control.trigger_inspect = false;
         s.control.ack_safe = false;
-        (t, a)
+        (t, a, m, tuned, conf)
     };
     if trigger {
         p.detector.force_inspect(wall_now());
     }
     if ack {
         p.detector.acknowledge_safe();
+    }
+    let parsed_mode = SecurityMode::parse(&sec_mode);
+    if p.security.mode != parsed_mode {
+        p.security.set_mode(parsed_mode);
+    }
+    if is_configured {
+        p.detector.fall_spike_threshold = tuned.fall_spike_threshold;
+        p.detector.inspector.duration = tuned.fall_stillness_seconds;
+        p.detector.pet.spr_threshold = tuned.pet_spr_threshold;
+        p.signal.hampel_window = tuned.hampel_window_size;
     }
 }
 
@@ -442,7 +458,7 @@ fn process_line(
                 let event_id = inc.event_id.clone();
                 notifier.send(Notice::Fall {
                     room: room.clone(),
-                    confidence: format!("{:.0}%", confidence * 100.0),
+                    confidence,
                     details,
                     bpm,
                     event_id: event_id.clone(),
@@ -479,6 +495,41 @@ fn process_line(
         }
     }
 
+    // Security Guard evaluation
+    if let Some(alert) = p.security.evaluate(state.name(), f.timestamp, f.diff_energy) {
+        let (room, household) = {
+            let s = bus.lock();
+            (s.placement.room_name.clone(), s.household_id.clone())
+        };
+        bus.push_event(
+            "SECURITY_INTRUSION",
+            alert.level,
+            &alert.message,
+            &format!(
+                "{{\"mode\":\"{}\",\"diff_energy\":{:.4}}}",
+                p.security.mode.as_str(),
+                f.diff_energy
+            ),
+        );
+        {
+            let mut s = bus.lock();
+            s.incidents.record(
+                &room,
+                "SECURITY_INTRUSION",
+                0.95,
+                0.0,
+                &alert.message,
+                &household,
+            );
+        }
+        notifier.send(Notice::Generic {
+            title: alert.title,
+            content: alert.message,
+            room,
+            ha_event: "security_intrusion".into(),
+        });
+    }
+
     let neighbor_snap = if p.packets % 80 == 0 {
         Some(snapshot_neighbor(&p.neighbor))
     } else {
@@ -489,6 +540,7 @@ fn process_line(
     let mut s = bus.lock();
     s.state = state.name().to_string();
     s.is_pet = state == HumanState::PetActivity;
+    s.spr = p.detector.latest_spr;
     s.variance = f.mean_variance;
     s.sample_rate = f.sample_rate_hz;
     s.jitter = f.packet_interval_jitter;
@@ -670,6 +722,7 @@ fn main() {
         signal: SignalFilter::new(),
         extractor: Extractor::new(args.window),
         detector,
+        security: SecurityGuard::new(SecurityMode::FallGuard),
         packets: 0,
         parse_dropped: 0,
         neighbor_rejected: 0,
@@ -709,9 +762,43 @@ fn main() {
     events.push("SYSTEM", "INFO", "SafeHalo Rust 守护服务启动", "{}");
     let incidents = IncidentStore::new(&args.storage_dir);
 
+    let mut devices = serial::DeviceRegistry::new();
+    if let Some(ref path) = args.serial {
+        devices.register(serial::DeviceInfo {
+            id: "csi_probe_0".into(),
+            device_type: "serial".into(),
+            role: serial::DeviceRole::SensorActuator,
+            path: path.clone(),
+            baud: args.baud,
+            status: "online".into(),
+            last_seen: timefmt::now_epoch(),
+        });
+    } else if let Some(ref addr) = args.udp {
+        devices.register(serial::DeviceInfo {
+            id: "csi_udp_receiver".into(),
+            device_type: "udp".into(),
+            role: serial::DeviceRole::Sensor,
+            path: addr.clone(),
+            baud: 0,
+            status: "online".into(),
+            last_seen: timefmt::now_epoch(),
+        });
+    } else {
+        devices.register(serial::DeviceInfo {
+            id: "stdin_stream".into(),
+            device_type: "stdin".into(),
+            role: serial::DeviceRole::Sensor,
+            path: "stdin".into(),
+            baud: 0,
+            status: "online".into(),
+            last_seen: timefmt::now_epoch(),
+        });
+    }
+
     let shared = Shared {
         state: "CALIBRATING".into(),
         is_pet: false,
+        spr: 0.0,
         variance: 0.0,
         sample_rate: 0.0,
         jitter: 0.0,
@@ -738,6 +825,7 @@ fn main() {
         placement,
         household_id: args.household_id.clone(),
         security_mode: "FALL_GUARD".into(),
+        devices,
         started_at: timefmt::now_epoch(),
     };
     let bus = Arc::new(Bus::new(shared));

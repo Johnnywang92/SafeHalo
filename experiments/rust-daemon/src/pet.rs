@@ -8,7 +8,7 @@ pub struct PetResult {
 }
 
 pub struct PetFilter {
-    spr_threshold: f64,
+    pub spr_threshold: f64,
     min_motion_var: f64,
 }
 

@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::auth::{AuthManager, Session};
-use crate::incidents::IncidentStore;
 use crate::json;
 use crate::notify::{Notice, Notifier};
 use crate::state::{self, Bus};
@@ -252,7 +251,8 @@ fn must_change_exempt(method: &str, path: &str) -> bool {
             path,
             "/" | "/index.html" | "/api/auth/current" | "/api/ha/status" | "/api/routine"
                 | "/api/neighbor_spectrum" | "/api/placement" | "/api/multilink"
-                | "/api/phase2/pilot" | "/api/incidents"
+                | "/api/phase2/pilot" | "/api/phase2/pilot/report" | "/api/incidents"
+                | "/api/devices" | "/api/health"
         )
     } else {
         matches!(path, "/api/auth/login" | "/api/auth/logout" | "/api/challenge/acknowledge")
@@ -302,6 +302,18 @@ fn send_json(st: &mut TcpStream, status: u16, body: &str) {
         _ => "OK",
     };
     send_raw(st, status, reason, "application/json; charset=utf-8", body.as_bytes(), &[]);
+}
+
+fn send_text(st: &mut TcpStream, status: u16, ctype: &str, body: &str) {
+    let reason = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        _ => "OK",
+    };
+    send_raw(st, status, reason, ctype, body.as_bytes(), &[]);
 }
 
 fn json_body(req: &Req) -> json::Json {
@@ -458,21 +470,38 @@ fn handle_get(
         "/api/phase2/pilot" => {
             let s = bus.lock();
             let incidents: Vec<String> = s.incidents.list_recent(10).iter().map(|i| i.to_json()).collect();
-            send_json(
-                st,
-                200,
-                &format!(
-                    "{{\"pilot_dashboard\":{},\"auto_calibration\":{},\"recent_incidents\":[{}]}}",
-                    state::pilot_json(),
-                    state::calib_json(&s.calib),
-                    incidents.join(",")
-                ),
-            );
+            if q.get("format").map(|v| v.as_str()) == Some("markdown") {
+                send_text(st, 200, "text/markdown; charset=utf-8", &state::pilot_markdown_report(&s));
+            } else {
+                send_json(
+                    st,
+                    200,
+                    &format!(
+                        "{{\"pilot_dashboard\":{},\"pilot_summary\":{},\"auto_calibration\":{},\"recent_incidents\":[{}]}}",
+                        state::pilot_dashboard_json(&s),
+                        state::pilot_json(&s),
+                        state::calib_json(&s.calib),
+                        incidents.join(",")
+                    ),
+                );
+            }
+        }
+        "/api/phase2/pilot/report" => {
+            let s = bus.lock();
+            send_text(st, 200, "text/markdown; charset=utf-8", &state::pilot_markdown_report(&s));
         }
         "/api/incidents" => {
             let s = bus.lock();
             let incidents: Vec<String> = s.incidents.list_recent(30).iter().map(|i| i.to_json()).collect();
             send_json(st, 200, &format!("{{\"incidents\":[{}]}}", incidents.join(",")));
+        }
+        "/api/devices" => {
+            let s = bus.lock();
+            send_json(st, 200, &s.devices.to_json());
+        }
+        "/api/health" => {
+            let s = bus.lock();
+            send_json(st, 200, &state::health_json(&s));
         }
         "/api/state" => {
             if auth_ctx(req, q, auth, &cfg.token).is_none() {
@@ -807,16 +836,31 @@ fn handle_post(
                 let o = jstr(&data, "operator");
                 if o.is_empty() { "miniprogram_family".into() } else { o }
             };
-            let (ok, msg, rec) = {
+            let dir = notifier_dir(bus);
+            let (ok, msg, rec, pilot_dash) = {
                 let mut s = bus.lock();
-                s.incidents.submit_feedback(
+                let cat = if category.is_empty() { "other" } else { &category };
+                let (ok, msg, rec) = s.incidents.submit_feedback(
                     if event_id.is_empty() { None } else { Some(&event_id) },
                     is_false,
-                    if category.is_empty() { "other" } else { &category },
+                    cat,
                     &notes,
                     &operator,
-                )
+                );
+                if ok && is_false {
+                    let adapt_msg = s.placement.apply_false_alarm_feedback(cat);
+                    s.placement.save(&dir);
+                    s.events.push(
+                        "FALSE_ALARM_FEEDBACK",
+                        "INFO",
+                        &format!("针对误报反馈进行自适应参数微调: {}", adapt_msg),
+                        "{}",
+                    );
+                }
+                let dash = state::pilot_dashboard_json(&s);
+                (ok, msg, rec, dash)
             };
+            bus.cv.notify_all();
             let rec_json = rec.map(|r| r.to_json()).unwrap_or_else(|| "null".into());
             send_json(
                 st,
@@ -826,7 +870,7 @@ fn handle_post(
                     ok,
                     json::escape(&msg),
                     rec_json,
-                    state::pilot_json()
+                    pilot_dash
                 ),
             );
         }
@@ -854,7 +898,7 @@ fn handle_post(
                 }
                 notifier.send(Notice::Fall {
                     room: "家庭测试区域".into(),
-                    confidence: "96%".into(),
+                    confidence: 0.96,
                     details: format!(
                         "管理员 [{}] 点击控制台【发送测试告警】",
                         c.username()
@@ -923,12 +967,19 @@ fn handle_post(
                     let r = jstr(&data, "reason");
                     if r.is_empty() { "家属在控制台标记误报".into() } else { r }
                 };
+                let dir = notifier_dir(bus);
                 let tuned = {
                     let mut s = bus.lock();
                     s.state = "EMPTY".into();
-                    s.events.push("FALSE_ALARM_FEEDBACK", "INFO", &reason, "{}");
-                    let p = s.placement.clone();
-                    p.tuned_json()
+                    let adapt_msg = s.placement.apply_false_alarm_feedback("other");
+                    s.placement.save(&dir);
+                    s.events.push(
+                        "FALSE_ALARM_FEEDBACK",
+                        "INFO",
+                        &format!("{}: {}", reason, adapt_msg),
+                        "{}",
+                    );
+                    s.placement.tuned_json()
                 };
                 bus.cv.notify_all();
                 send_json(
@@ -936,12 +987,47 @@ fn handle_post(
                     200,
                     &format!(
                         "{{\"success\":true,\"message\":\"{}\",\"tuned_parameters\":{}}}",
-                        json::escape("已记录误报反馈"),
+                        json::escape("已记录误报反馈并更新自适应参数"),
                         tuned
                     ),
                 );
             }
             None => send_json(st, 401, "{\"error\":\"Unauthorized\"}"),
+        },
+        "/api/devices/command" => match auth_ctx(req, q, auth, &cfg.token) {
+            Some(c) if c.role() == "admin" => {
+                let cmd = jstr(&data, "command");
+                if !crate::serial::is_command_allowed(&cmd) {
+                    send_json(st, 400, "{\"success\":false,\"message\":\"Command not permitted in whitelist\"}");
+                    return;
+                }
+                let dev_id = {
+                    let d = jstr(&data, "device_id");
+                    if d.is_empty() { "csi_probe_0".into() } else { d }
+                };
+                {
+                    let mut s = bus.lock();
+                    s.events.push(
+                        "DEVICE_COMMAND",
+                        "INFO",
+                        &format!("管理员 [{}] 向设备 [{}] 下发白名单指令: {}", c.username(), dev_id, cmd),
+                        &format!("{{\"device_id\":\"{}\",\"command\":\"{}\"}}", json::escape(&dev_id), json::escape(&cmd)),
+                    );
+                }
+                bus.cv.notify_all();
+                send_json(
+                    st,
+                    200,
+                    &format!(
+                        "{{\"success\":true,\"message\":\"{}\",\"device_id\":\"{}\",\"command\":\"{}\"}}",
+                        json::escape("指令已成功下发"),
+                        json::escape(&dev_id),
+                        json::escape(&cmd)
+                    ),
+                );
+            }
+            Some(_) => send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"权限不足，仅管理员可向硬件设备下发指令\"}"),
+            None => send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"未登录或登录已过期，请重新登录\"}"),
         },
         "/api/auth/logout" => {
             if let Some(t) = cookie_token(req) {

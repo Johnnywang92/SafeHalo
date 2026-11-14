@@ -10,9 +10,9 @@ SafeHalo 提供三种接入方式，满足不同网络与部署习惯：
 
 | 接入方式 | 复杂度 | 实时性 | 推荐场景 | 说明 |
 | :--- | :---: | :---: | :--- | :--- |
-| **方案 A: MQTT 自动发现 (推荐)** | **零配置** | 毫秒级 | **绝大多数 Home Assistant 用户** | 标准 MQTT Discovery 协议，HA 自动发现 9 个实体，无需写 YAML |
-| **方案 B: RESTful 传感器** | 极低 | 1秒轮询 | 局域网未搭建 MQTT Broker | 通过 `/api/ha/status` 轮询 JSON 遥测 |
-| **方案 C: Webhook 自动化** | 极低 | 实时事件 | 仅需联动特定自动化流程 | 跌倒或入侵时直接 HTTP POST 触发 HA 自动化 |
+| **方案 A: MQTT 自动发现 (推荐)** | **零配置** | 毫秒级 | **绝大多数 Home Assistant 用户** | 标准 MQTT Discovery 协议，HA 自动发现 9 个实体，无需写 YAML (Python 生产服务原生内置) |
+| **方案 B: RESTful 传感器** | 极低 | 1秒轮询 | 局域网未搭建 MQTT Broker / 运行 Rust Daemon | 通过 `/api/ha/status` 轮询 JSON 遥测，双引擎 100% 契约一致 |
+| **方案 C: Webhook 自动化** | 极低 | 实时事件 | 仅需联动特定自动化流程 | 跌倒或入侵时直接 HTTP POST 触发 HA 自动化，Rust 支持重试与去重 |
 
 ---
 
@@ -57,16 +57,17 @@ python3 safehalo_service.py \
 
 ---
 
-## 3. 方案 B: RESTful 传感器 (免 MQTT 方式)
+## 3. 方案 B: RESTful 传感器 (免 MQTT 方式 · 适配 Python 服务与 Rust Daemon)
 
-若家中 Home Assistant 尚未启用 MQTT，可在 HA 的 `configuration.yaml` 中添加以下原生 REST 配置：
+若家中 Home Assistant 尚未启用 MQTT，可在 HA 的 `configuration.yaml` 中添加以下原生 REST 配置（Python 服务默认端口为 `8080`，Rust Daemon 默认端口为 `8091`）：
 
 ```yaml
 # Home Assistant configuration.yaml
 sensor:
   - platform: rest
     name: "SafeHalo 全局人体状态"
-    resource: "http://192.168.1.1:8080/api/ha/status"
+    # 根据部署环境选择端口：Python 服务为 8080，OpenWrt Rust daemon 为 8091
+    resource: "http://192.168.1.1:8091/api/ha/status"
     value_template: "{{ value_json.human_state }}"
     scan_interval: 1
     json_attributes:
@@ -74,6 +75,7 @@ sensor:
       - presence
       - motion
       - pet_activity
+      - security_mode
       - radar_height_m
       - respiration_bpm
       - confidence
@@ -90,17 +92,38 @@ binary_sensor:
         friendly_name: "室内有人存在"
         device_class: presence
         value_template: "{{ state_attr('sensor.safehalo_quan_ju_ren_ti_zhuang_tai', 'presence') == true }}"
+      safehalo_motion:
+        friendly_name: "空间有人走动"
+        device_class: motion
+        value_template: "{{ state_attr('sensor.safehalo_quan_ju_ren_ti_zhuang_tai', 'motion') == true }}"
+      safehalo_pet:
+        friendly_name: "宠物地面活动"
+        device_class: presence
+        icon_template: "mdi:paw"
+        value_template: "{{ state_attr('sensor.safehalo_quan_ju_ren_ti_zhuang_tai', 'pet_activity') == true }}"
 ```
 
 ---
 
-## 4. 方案 C: Webhook 自动化触发
+## 4. 方案 C: Webhook 自动化触发 (实时毫秒级推送)
 
 在 Home Assistant 中创建 Webhook 触发器：
 1. 进入【配置】->【自动化与场景】->【添加自动化】。
-2. 触发器类型选择 **Webhook**，设置 Webhook ID 为 `safehalo_fall`。
-3. SafeHalo 启动时加入参数：`--ha-webhook http://192.168.1.100:8123/api/webhook/safehalo_fall`。
-4. 一旦检测到确诊跌倒，SafeHalo 将立即向该 Webhook 发送 JSON 载荷并执行自动化。
+2. 触发器类型选择 **Webhook**，设置 Webhook ID 为 `safehalo_fall`（或通过 Web UI 控制台【通知渠道配置】中直接填入 HA Webhook URL）。
+3. SafeHalo 启动参数或控制台配置：`--ha-webhook http://192.168.1.100:8123/api/webhook/safehalo_fall`。
+4. 一旦确诊跌倒，SafeHalo 将立即向该 Webhook 发送标准 JSON 载荷（Rust Daemon 支持带指数退避的重试持久队列与 30s 同房间去重）：
+   ```json
+   {
+     "event_id": "evt_1700000000_1234",
+     "event_type": "FALL_ALARM",
+     "room": "主卧卫生间",
+     "household_id": "H01",
+     "confidence": 0.96,
+     "respiration_bpm": 18.0,
+     "details": "跌倒确诊：姿态冲击后处于持续静止状态",
+     "timestamp": 1700000000.0
+   }
+   ```
 
 ---
 
@@ -222,3 +245,22 @@ cards:
       - entity: button.safehalo_inspect_now
         name: 启动主动微动扫描
 ```
+
+---
+
+## 7. Python 生产服务与 Rust 轻量 Daemon 能力矩阵与架构边界说明
+
+SafeHalo 针对不同硬件部署场景提供了两套引擎。两套引擎在核心跌倒状态机、质询应答拦截、安防模式与 Webhook 载荷契约上保持 **100% 行为与数据等价**：
+
+| 能力维度 | Python 生产服务 (`safehalo_service.py`) | Rust 轻量 Daemon (`experiments/rust-daemon`) | 架构定位与选型建议 |
+| :--- | :---: | :---: | :--- |
+| **部署资源占用** | 内存 ~25-40MB，需要 Python 运行时 | 内存 **< 2MB**，单个无依赖静态二进制文件 | OpenWrt 路由器、低闪存低内存边缘网关优先用 Rust；PC/树莓派/NAS 优先用 Python |
+| **Wi-Fi CSI 跌倒检测** | ✅ 完整支持（四段式质询闭环） | ✅ 完整支持（100% 位级等价） | 核心算法内核双引擎完全等价 |
+| **安防布撤防 (`SecurityGuard`)** | ✅ 4 种模式 | ✅ 4 种模式（离家/夜间/宵禁/跌倒守护） | 均支持 HA 联动切换 |
+| **告警可靠性与持久化队列** | ✅ 30s 同房间去重 | ✅ 指数退避重试 + 待发落盘 + 死信队列 + 去重 | 弱网环境下 Rust Daemon 具备更高通知抗丢包能力 |
+| **HA MQTT Auto-Discovery** | ✅ 原生内置零依赖 MiniMQTT 自动注册 | ⚠️ 建议走方案 B (RESTful) 或 方案 C (Webhook) | Rust 保持零依赖与极小体积，免去 MQTT 第三方依赖膨胀 |
+| **毫米波雷达双模融合 (`Radar`)** | ✅ 支持 (LD2410 / MR60 等) | ⚠️ 单模 CSI，状态返回 `radar_online: false` | 毫米波串口解析运行于 Python 服务；Rust 控制台明确标记单模 |
+| **多 AP 空间分集 (`MultiLink`)** | ✅ 支持多路由 Mesh 空间融合 | ⚠️ 单链路模式，状态返回 `multilink.supported: false` | 复杂大户型多 AP 融合部署在 Python 服务 |
+| **长周期作息画像 (`Routine`)** | ✅ 支持 24h 活动画像与晨起/起夜异常 | ⚠️ 建议由 Home Assistant 原生历史传感器接管 | 避免嵌入式路由器 Flash 频繁写入海量作息历史 |
+
+> **优雅降级原则**：当 Home Assistant 接入 Rust 轻量 Daemon 时，系统通过 `/api/ha/status` 与 `/api/status` 明确声明未启用的子系统状态（`enabled: false, supported: false`），控制台展示为「未启用 / 单模 CSI」，杜绝虚假在线或静默异常。

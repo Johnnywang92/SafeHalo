@@ -91,7 +91,7 @@ ssh "$ROUTER_USER@$ROUTER_IP" 'uname -a; cat /etc/openwrt_release; command -v py
 
 ```bash
 cd "$REPO_DIR"
-python3 -m unittest discover -s tests
+python3 -m pytest tests/
 python3 scripts/evaluator.py --demo
 ```
 

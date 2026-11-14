@@ -103,6 +103,10 @@ class AuthManager:
         try:
             with open(self.data_file, "w", encoding="utf-8") as f:
                 json.dump(users, f, ensure_ascii=False, indent=2)
+            try:
+                os.chmod(self.data_file, 0o600)
+            except OSError:
+                pass
         except Exception as e:
             logger.error(f"保存用户数据失败: {e}")
 

@@ -311,7 +311,13 @@ fn save_users(file: &Path, users: &[User]) -> bool {
         ));
     }
     out.push_str("}\n");
-    fs::write(file, out).is_ok()
+    let ok = fs::write(file, out).is_ok();
+    #[cfg(unix)]
+    if ok {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(file, fs::Permissions::from_mode(0o600));
+    }
+    ok
 }
 
 impl AuthManager {

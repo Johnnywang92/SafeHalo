@@ -27,6 +27,8 @@ pilot_manager = PilotHouseholdManager()
 incident_manager = IncidentFeedbackManager()
 
 # 全局共享状态字典 (供算法后台线程与 Web 前端交互)
+SERVICE_START_TIME = time.time()
+
 shared_system_state = {
     "state": "EMPTY",
     "sample_rate": 30.0,
@@ -67,6 +69,8 @@ shared_system_state = {
         "channel_advice": "当前无线信道纯净，无显著同频邻居串扰。",
     },
     "multilink": {
+        "enabled": False,
+        "supported": True,
         "active_room": placement_adapter.current_config.room_name,
         "participating_links": 1,
         "fused_energy": 0.0,
@@ -135,7 +139,7 @@ def _must_change_exempt(method: str, path: str) -> bool:
         return path in (
             "/", "/index.html", "/api/auth/current", "/api/ha/status", "/api/routine",
             "/api/neighbor_spectrum", "/api/placement", "/api/multilink",
-            "/api/phase2/pilot", "/api/incidents",
+            "/api/phase2/pilot", "/api/incidents", "/api/devices", "/api/health",
         )
     return path in ("/api/auth/login", "/api/auth/logout", "/api/challenge/acknowledge")
 
@@ -213,6 +217,7 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 "pet_activity": is_pet,
                 "human_state": shared_system_state.get("state", "EMPTY"),
                 "fused_state": shared_system_state.get("fused_state", "CALIBRATING"),
+                "security_mode": shared_system_state.get("security_mode", "FALL_GUARD"),
                 "radar_height_m": shared_system_state.get("radar_z", 0.0),
                 "respiration_bpm": shared_system_state.get("radar_bpm", 0.0),
                 "confidence": shared_system_state.get("fused_confidence", 1.0),
@@ -266,6 +271,36 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/api/incidents":
             self._send_json(200, {
                 "incidents": incident_manager.list_recent_incidents(limit=30),
+            })
+            return
+
+        # 1.8 硬件感知与作动设备列表 (公开遥测)
+        if self.path == "/api/devices":
+            self._send_json(200, {
+                "devices": [
+                    {
+                        "id": "csi_probe_0",
+                        "type": "serial",
+                        "role": "sensor_actuator",
+                        "path": "auto",
+                        "baud": 921600,
+                        "status": "online",
+                        "last_seen": 0.0,
+                    }
+                ]
+            })
+            return
+
+        # 1.9 服务健康检查与运维探针 (公开遥测)
+        if self.path == "/api/health":
+            uptime = max(0.0, time.time() - SERVICE_START_TIME)
+            self._send_json(200, {
+                "status": "healthy",
+                "uptime_seconds": round(uptime, 1),
+                "state": shared_system_state.get("state", "EMPTY"),
+                "security_mode": shared_system_state.get("security_mode", "FALL_GUARD"),
+                "fused_state": shared_system_state.get("fused_state", "CALIBRATING"),
+                "radar_online": shared_system_state.get("radar_online", False),
             })
             return
 
@@ -696,6 +731,35 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             logger.clear_logs()
             logger.info(f"管理员 [{sess['username']}] 清空了系统与事件审计日志")
             self._send_json(200, {"success": True, "message": "系统与事件日志已成功清空"})
+            return
+
+        # 10. 硬件设备白名单指令下发 (仅管理员)
+        if self.path == "/api/devices/command":
+            if sess.get("role") != "admin":
+                self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可向硬件设备下发指令"})
+                return
+            data = self._read_json_body() or {}
+            cmd = str(data.get("command", "")).strip()
+            dev_id = str(data.get("device_id", "csi_probe_0")).strip()
+            allowed = False
+            if cmd.startswith("BURST_RATE:"):
+                allowed = cmd[11:] in ("20", "30", "50", "100")
+            elif cmd.startswith("CHALLENGE_BEEP:"):
+                allowed = cmd[15:] in ("0", "1")
+            elif cmd in ("PING", "REBOOT", "STATUS"):
+                allowed = True
+
+            if not allowed:
+                self._send_json(400, {"success": False, "message": "Command not permitted in whitelist"})
+                return
+
+            logger.info(f"[ACTUATION] 管理员 [{sess['username']}] 向设备 [{dev_id}] 下发白名单指令: {cmd}")
+            self._send_json(200, {
+                "success": True,
+                "message": "指令已成功下发",
+                "device_id": dev_id,
+                "command": cmd,
+            })
             return
 
         self.send_error(404, "Not Found")

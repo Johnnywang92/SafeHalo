@@ -56,7 +56,7 @@ pub struct Detector {
     calib_vars: Vec<f64>,
     calib_diffs: Vec<f64>,
     fall_spike_time: Option<f64>,
-    pet: PetFilter,
+    pub pet: PetFilter,
     pub inspector: Inspector,
     object_confirm_seconds: f64,
     object_confirm_cv: f64,
@@ -68,6 +68,7 @@ pub struct Detector {
     pub fall_alarms: u64,
     pub last_fall_bpm: f64,
     pub last_fall_confidence: f64,
+    pub latest_spr: f64,
 }
 
 impl Detector {
@@ -105,6 +106,7 @@ impl Detector {
             fall_alarms: 0,
             last_fall_bpm: 0.0,
             last_fall_confidence: 0.0,
+            latest_spr: 0.0,
         }
     }
 
@@ -213,6 +215,7 @@ impl Detector {
             f.diff_energy,
             self.base_diff,
         );
+        self.latest_spr = pet_res.spr;
 
         let is_high_impact = (f.spike_ratio >= self.fall_spike_threshold && diff_ratio > 2.5)
             || (var_ratio > 8.0 && f.spike_ratio > 1.8)

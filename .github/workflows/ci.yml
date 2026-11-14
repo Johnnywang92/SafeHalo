@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  python-tests:
+    name: Python Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: pip install pytest
+      - name: Run Python unit tests
+        run: |
+          python -m pytest tests/
+
+  rust-checks:
+    name: Rust Daemon & Equivalence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Set up Python for verification
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cargo check & test
+        run: |
+          cargo check --manifest-path experiments/rust-daemon/Cargo.toml
+          cargo test --manifest-path experiments/rust-daemon/Cargo.toml
+      - name: Dual-engine equivalence fixtures
+        run: |
+          bash experiments/rust-daemon/verify/run_fixtures.sh
+      - name: Scenario comparisons
+        run: |
+          bash experiments/rust-daemon/verify/run_scenarios.sh

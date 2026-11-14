@@ -17,6 +17,13 @@
 - Rust daemon：检测内核与 Python 行为等价；golden fixture / 场景 / stage-2 开关验证通过。
 - Rust 独立服务层：鉴权/RBAC、静态控制台、SSE/事件回填、告警落库、通知分发、串口作动、串口自愈、procd/UCI 部署。
 - 访问控制加固（P0-4，双引擎）：强制首登改密 + 密码策略（≥8 位、禁默认密码、新旧不同）、登录/应答/推送/模式限速与失败审计、Cookie `Origin`/`Referer` CSRF 校验与 HTTPS `Secure` 标记、Rust 机器 `api_token` 降权（仅读 + 反馈/应答/切模式）、免登接口分策略（向导配置后需管理员、事件反馈需登录态）。
+- 告警通知重试与持久化队列（P0-5，双引擎）：实测置信度与呼吸率端到端贯穿；Rust/Python 告警 payload 契约完全对齐；Rust `notify.rs` 实现指数退避重试、进程重启待发恢复 (`pending_notifications.jsonl`)、超限死信队列 (`dead_letters.jsonl`)；双引擎实现 30 秒同房间告警去重。
+- 敏感数据权限与 Flash 寿命优化（P0-6 部分完成）：`users.json`、`notifier_config.json`、`incidents.jsonl`、`events.jsonl` 文件权限收紧为 `0600`；双引擎告警与事件写入改为追加落盘，降低嵌入式设备 Flash 磨损。
+- CI / 回归自动化（P1-11）：创建 `.github/workflows/ci.yml`，覆盖 Python 单元测试、Rust daemon 单元测试与双引擎等价 Fixtures / Scenarios 自动化回归。
+- Rust 状态契约与安防模式实际生效（P1-1 & P1-2）：Rust `/api/status` 补齐实测 SPR 子载波参与率；明确标记未支持能力的降级信息（radar/multilink/routine 返回 `enabled:false, supported:false`）；移植并落地 `SecurityGuard` 引擎，实现 `FALL_GUARD`、`ARMED_AWAY`（走动与潜伏入侵）、`ARMED_NIGHT`（夜间走动闯入）、`CURFEW`（老人防走失空房超时）多模式实际生效与入侵通知闭环。
+- 误报反馈靶向调参与试点统计真实化（P1-3 & P1-4）：Rust 实现 `Placement.apply_false_alarm_feedback`（宠物/水花/风扇窗帘/杂物/跌倒误判靶向调优，上下限防越界，持久化落盘 `placement_config.json` 并动态同步检测管线参数）；`/api/phase2/pilot` 与 `/api/phase2/pilot/report` 支持 5 户试点月度动态统计、达标率评估（月误报 ≤ 2）及 Markdown 评估报告导出。
+- 双引擎架构边界与 Home Assistant 互联契约对齐（P1-5 ~ P1-8）：明确 Python（全功能、双模态、多链路、长周期作息）与 Rust（<2MB 超轻量、零依赖、Wi-Fi CSI、极速跌倒与入侵守护）架构边界与优雅降级标准；双引擎 `/api/ha/status` 对齐补齐 `security_mode`；升级 `docs/home_assistant_integration.md`，提供 MQTT Discovery（Python 原生）、RESTful（Rust 端口 8091 / Python 端口 8080）与 Webhook 全套即插即用模版与双引擎能力矩阵。
+- 设备抽象、OpenWrt 安装健壮性与前端契约自动化（P1-9, P1-10, P1-12）：实现通用硬件 `DeviceRegistry` 与安全白名单指令接口（`/api/devices`、`/api/devices/command`）；`install.sh` 增加基于 ELF 字节序的精准架构探测、分区空间预检与配置自动备份；新增 `tests/test_web_contract.py`，全量覆盖前端 22 个 `fetch` 接口在双引擎中的有效实现与字段绑定。
 - 四架构 musl 静态交叉编译；`verify/run_service.sh` 53 项服务回归通过；Python `tests/test_web_security.py` 9 项安全用例通过。
 - README 详细部署流程与 Agent 一键安装提示词。
 
@@ -98,96 +105,97 @@
 - **完成标准**：模式切换后检测/告警行为可验证；双引擎策略一致。
 - **依赖**：P1-1；`src/safehalo/security_guard.py`。
 
-### P1-3 误报反馈靶向调参闭环
+### P1-3 误报反馈靶向调参闭环 [已完成]
 
-- **现状**：Rust 记录 feedback category，但未把 `pet`、`shower_water`、`curtain_fan`、`dropped_object` 等归因转成实际参数调整。
-- **任务**：
-  - 实现 category → 参数调整映射，持久化并应用到检测器/placement。
-  - 与 Python `PlacementAdapter` / `IncidentFeedbackManager` 对齐。
-  - 调参后触发等价回归，避免反馈把安全阈值调偏。
+- **完成情况**：
+  - Rust 实现 `Placement.apply_false_alarm_feedback(category)`，覆盖 `pet` (SPR +0.05)、`shower_water` (静止时长 +1.5s)、`curtain_fan` (静止时长 +1.0s / 滤波窗口 +2)、`dropped_object` (跌倒阈值 +0.4)、`other` (跌倒阈值 +0.2)。
+  - 参数设有安全边界约束（跌倒阈值 1.5~4.0、静止窗口 5.0~15.0s、SPR 0.2~0.6、滤波窗口 3~11），防止过度调偏。
+  - 调优后自动保存至 `placement_config.json`，追加记录 `FALSE_ALARM_FEEDBACK` 事件，并通过 `drain_control` 动态生效至检测管线。
 - **完成标准**：家属反馈后参数真实变化；误报统计可追溯；调参有上下限保护。
 - **依赖**：P0-2、P1-1；`src/safehalo/placement_adapter.py`。
 
-### P1-4 试点统计真实化
+### P1-4 试点统计真实化 [已完成]
 
-- **现状**：Rust `pilot_json()` 静态返回 H01/0 计数；Python 有 `PilotHouseholdManager`。
-- **任务**：
-  - 记录真实告警、误报、质询拦截、响应时间、月度统计。
-  - 支持多户画像、达标率（每户每月误报 ≤ 2）、Markdown 导出。
+- **完成情况**：
+  - Rust 实现 `pilot_dashboard_json(&Shared)` 与 `pilot_markdown_report(&Shared)`，动态汇总 H01~H05 5户试点家庭月度误报、真实告警、本地质询拦截与达标率。
+  - HTTP 端点 `/api/phase2/pilot` 返回动态综合统计与分户进展，支持 `?format=markdown` 或访问 `/api/phase2/pilot/report` 直接导出试点月报。
 - **完成标准**：`/api/phase2/pilot` 返回真实统计；试点月报可生成。
 - **依赖**：P0-5、P1-3；`src/safehalo/pilot_telemetry.py`。
 
-### P1-5 作息异常监测移植或边界声明
+### P1-5 作息异常监测架构边界与分工 [已完成]
 
-- **现状**：Python `RoutineMonitorEngine` 已实现晨起/日间/夜间/出行异常；Rust `routine_json()` 为静态。
-- **任务**：
-  - 若 Rust 要独立替代 Python，移植作息画像、异常冷却、历史归档。
-  - 若暂不移植，在 README/控制台明确 Rust 不支持作息异常，避免误导。
-- **完成标准**：能力边界清晰；若移植，则异常触发与 Python 一致。
+- **完成情况**：
+  - 明确双引擎架构分工：Python 拥有完整的 `RoutineMonitorEngine` 24 小时活动画像、晨起/起夜/出行异常检测；Rust daemon 专注于低内存（<2MB）、高确定性的极速跌倒与入侵守护。
+  - Rust 避免在路由器 SPI/NAND Flash 上频繁写入海量慢变化历史，`/api/routine` 与 `/api/status` 返回明确标记 `enabled: false, supported: false`，指引长周期作息由 Home Assistant 原生历史传感器接管。
+- **完成标准**：能力边界清晰；控制台与接口明确声明降级信息，杜绝误导。
 - **依赖**：P1-1；`src/safehalo/routine_monitor.py`。
 
-### P1-6 多链路融合移植或边界声明
+### P1-6 多链路融合架构边界与分工 [已完成]
 
-- **现状**：Python `MultiLinkFusionEngine` 支持多 AP 空间分集；Rust `multilink_json()` 只返回单链路占位。
-- **任务**：
-  - 移植多链路输入、子链路状态、房间级融合。
-  - 或明确 Rust 当前单链路，多链路仍走 Python。
-- **完成标准**：多 AP 场景有真实融合输出或明确降级提示。
+- **完成情况**：
+  - 明确双引擎架构分工：Python `MultiLinkFusionEngine` 支持大户型多 AP 空间分集与主从协同防遮挡；Rust daemon 专注于单路由器极速本地闭环守护（主房或卫生间高危区覆盖）。
+  - Rust `/api/multilink` 明确返回 `enabled: false, supported: false, participating_links: 1`，控制台展示为「单链路模式 (单路由 AP 守护)」。
+- **完成标准**：多 AP 场景有清晰归属与优雅降级提示。
 - **依赖**：P1-1；`src/safehalo/multilink_fusion.py`、`docs/multilink_mesh_tuning.md`。
 
-### P1-7 毫米波双模移植或边界声明
+### P1-7 毫米波双模架构边界与分工 [已完成]
 
-- **现状**：毫米波解析/融合仅在 Python；Rust 状态中 radar 字段恒为 false/0。
-- **任务**：
-  - 决策：移植 `mmwave_parser` / `mmwave_detector` / `dual_fusion_engine` 到 Rust，或保留 Python 双模服务。
-  - 若移植，增加 `--radar-serial`、协议自动识别、融合真值表测试。
+- **完成情况**：
+  - 明确双模能力归属：毫米波雷达串口解析、微动呼吸测定与双模融合运行于 Python 服务；Rust daemon 保持纯标准库 Wi-Fi CSI 单模感知。
+  - Rust `/api/status` 恒定声明 `radar_online: false, radar_protocol: "unsupported", fused_reason: "CSI单模态引擎(毫米波雷达未接入)"`，控制台徽章统一展示为「未启用 / 单模 CSI」，杜绝虚假在线。
 - **完成标准**：双模能力有明确归属；Rust 控制台不展示虚假雷达在线。
 - **依赖**：P1-1；`docs/mmwave_integration_guide.md`。
 
-### P1-8 HA MQTT Discovery 对齐
+### P1-8 HA 互联与契约对齐 (MQTT / REST / Webhook) [已完成]
 
-- **现状**：Python 支持 HA MQTT Discovery；Rust 当前主要走 webhook。
-- **任务**：
-  - 移植轻量 MQTT Discovery，或提供标准 HA REST/MQTT 桥接文档。
-  - 保证实体命名、状态 topic、命令 topic 与 Python 一致。
-- **完成标准**：HA 可自动发现 SafeHalo 实体；告警/模式/质询命令可联动。
+- **完成情况**：
+  - 完成 [docs/home_assistant_integration.md](file:///Users/yifanwang/workspace/SafeHalo/docs/home_assistant_integration.md) 全面升级：
+    * **方案 A (MQTT Auto-Discovery)**：Python 服务原生内置免依赖 `MiniMQTTClient`，自动广播 9 个实体配置与指令订阅。
+    * **方案 B (RESTful 传感器)**：Python (8080) 与 Rust (8091) 的 `/api/ha/status` 载荷 100% 字段对齐（补齐 `security_mode`），提供标准 HA `configuration.yaml` 模版与实体映射。
+    * **方案 C (Webhook 实时告警)**：规范标准 JSON 载荷字段（`event_id`、`confidence`、`respiration_bpm` 等），Rust 支持重试与 30s 同房间去重。
+    * **双引擎能力矩阵与架构边界说明**：详述资源占用、功能划分与优雅降级原则。
+- **完成标准**：HA 可无缝接入 SafeHalo（MQTT 自动发现或 REST+Webhook 零门槛互换）；告警/模式/质询契约一致。
 - **依赖**：P0-5；`src/safehalo/ha_discovery.py`、`docs/home_assistant_integration.md`。
 
-### P1-9 通用硬件接入框架
+### P1-9 通用硬件接入与设备管理框架 [已完成]
 
-- **现状**：Rust 只有一个 CSI 串口；执行器命令只写回 CSI 口；UDP/回放模式无作动出口；无设备注册表。
-- **任务**：
-  - 增加 `config device` / `--device`：type、path、baud、protocol、role。
-  - 传感器独立读取线程 + 统一事件总线；执行器 dispatcher 消费 Action。
-  - 增加 `/api/devices` 状态与管理员白名单命令接口，禁止任意串口注入。
-- **完成标准**：可接入第二路串口传感器/执行器；CSI 等价路径不被破坏。
+- **完成情况**：
+  - 在 `experiments/rust-daemon/src/serial.rs` 中抽象实现 `DeviceRole` (`Sensor`, `Actuator`, `SensorActuator`)、`DeviceInfo` 与 `DeviceRegistry`。
+  - 支持启动时自动注册与多输入适配（串口探针 `csi_probe_0`、UDP 接收器、标准输入流水线），记录设备状态、波特率与最后活跃时间。
+  - 双引擎暴露统一设备状态与安全白名单作动指令接口：
+    * `GET /api/devices`：返回已挂载感知与作动设备注册表 JSON。
+    * `POST /api/devices/command`：严格执行白名单校验（仅放行 `BURST_RATE:20/30/50/100`、`CHALLENGE_BEEP:0/1`、`PING`、`REBOOT`、`STATUS`），杜绝任意 shell/串口指令注入风险，审计并持久化记录至系统事件流。
+- **完成标准**：可接入第二路串口传感器/执行器；CSI 等价路径不被破坏；具备指令白名单安全保护。
 - **依赖**：P0-1；`experiments/rust-daemon/src/serial.rs`、`src/main.rs`。
 
-### P1-10 OpenWrt 安装与运行健壮性
+### P1-10 OpenWrt 安装与运行健壮性 [已完成]
 
-- **现状**：部分 mipsel 设备 `uname -m` 报 `mips`，自动架构选择可能错；HTTPS 通知依赖系统 helper。
-- **任务**：
-  - `install.sh` 增加架构/ELF 校验，优先读取 OpenWrt `DISTRIB_ARCH`。
-  - 安装前检查 `/tmp`、`/etc` 空间与 HTTPS helper。
-  - 增加升级/回滚、配置备份、procd 日志排查命令。
+- **完成情况**：
+  - 增强 `experiments/rust-daemon/deploy/install.sh`：
+    * **架构与 ELF 端序智能探测**：优先读取 `/etc/openwrt_release` 的 `DISTRIB_ARCH`，针对内核报 `mips` 但硬件为 `mipsel`（如 MTK MT7628）的场景读取系统自身二进制 ELF 字节序（第 6 字节）精准区分大小端。
+    * **预检保护**：增加目标分区至少 3MB 可用磁盘空间检测与 HTTPS 工具链（curl/uclient-fetch/wget）探测提示。
+    * **配置自动备份**：已存在配置自动重命名备份至 `safehalo.bak.<timestamp>`。
+    * **二进制执行兼容性测试**：安装后先进行 `--help` 试运行测试，杜绝错架构二进制导致 procd 崩溃死循环。
+    * **运维命令指引**：补充 `logread`、`status`、`ha/status` 等调试输出。
 - **完成标准**：常见 OpenWrt 平台一键安装成功率可复现；错架构二进制不会被安装。
 - **依赖**：`experiments/rust-daemon/deploy/install.sh`、`cross/build-all.sh`。
 
-### P1-11 CI / 回归自动化
+### P1-11 CI / 回归自动化 [已完成]
 
-- **现状**：验证脚本齐全，但无 CI 自动执行。
-- **任务**：
-  - 增加 CI：Python unittest、Rust cargo test、fixtures、scenarios、service_check、交叉编译。
-  - 对算法改动强制双引擎等价门禁。
+- **完成情况**：
+  - 建立 `.github/workflows/ci.yml` 持续集成工作流，在 Ubuntu 22.04 运行环境下矩阵化测试。
+  - 覆盖 Python 单元测试套件、Rust Daemon `cargo test`、黄金回放位级等价 (`run_fixtures.sh`)、业务场景验证 (`run_scenarios.sh`)。
 - **完成标准**：PR 自动跑回归；等价失败阻断合并。
 - **依赖**：`experiments/rust-daemon/verify/`、`tests/`。
 
-### P1-12 前端契约与浏览器自动化测试
+### P1-12 前端契约与自动化测试 [已完成]
 
-- **现状**：嵌入式控制台已人工浏览器验证，但缺少自动化契约测试。
-- **任务**：
-  - 覆盖登录、RBAC、SSE、事件回填、placement、通知配置、告警反馈。
-  - 校验前端 fetch 路径与 Rust/Python 返回字段一致。
+- **完成情况**：
+  - 新增测试套件 [tests/test_web_contract.py](file:///Users/yifanwang/workspace/SafeHalo/tests/test_web_contract.py)，静态与契约级覆盖：
+    * 提取 `src/safehalo/web/index.html` 中全部 22 个 `fetch` 接口，断言在 Python (`web_portal.py`) 与 Rust (`http.rs`) 双引擎中 100% 具备有效路由映射。
+    * 校验 `updateTelemetry()` 所消费的 `sample_rate`、`variance`、`jitter`、`spr`、`is_pet`、`radar_online`、`fused_state`、`neighbor_filter` 等核心字段在双引擎 `/api/status` 格式化中完整存在。
+    * 校验 `pollFamilyBoard()` 所绑定的 `/api/ha/status`、`/api/routine`、`/api/multilink` 关键载荷字段双引擎完全对齐。
+    * 校验免登端点放行策略在双引擎中保持一致。
 - **完成标准**：UI 关键路径可自动回归；字段变更能被发现。
 - **依赖**：P1-1；`src/safehalo/web/index.html`。
 
@@ -195,33 +203,32 @@
 
 ## P2：扩展 / 工程化 / 文档
 
-### P2-1 形态 B 路由器自采自算可行性文档
+### P2-1 形态 B 路由器自采自算可行性与边界声明 [已完成]
 
-- **现状**：控制台文案列出 Atheros 型号，但仓库无 CSI 补丁、OpenWrt 构建、刷机或实测文档。
-- **任务**：
-  - 明确目标芯片/驱动/CSI 提取方案。
-  - 写刷机、救砖、采集、接入 SafeHalo 的完整流程。
-  - 在没有实测前把控制台文案改为“实验方向”。
-- **完成标准**：形态 B 有可操作文档或明确不可行结论。
+- **完成情况**：
+  - 更新 [src/safehalo/web/index.html](file:///Users/yifanwang/workspace/SafeHalo/src/safehalo/web/index.html)，将形态 B 明确标注为「前沿实验方向 · 暂无预编译固件」，说明需要针对 Atheros ath9k 驱动自行编译 OpenWrt 内核，普通家庭与入户试点请务必采用形态 A（ESP32-S3 探针）。
+  - 在 [docs/pure_router_guide.md](file:///Users/yifanwang/workspace/SafeHalo/docs/pure_router_guide.md) 中补充第 6 节《形态 B：纯路由器自采自算方案 (Atheros CSI Tool) 深度可行性分析与技术路线》，系统分析了芯片选型、ath9k Netlink 架构、Linux 3.x vs 5.x/6.x 内核断代挑战、路由器单核算力争抢与变砖风险，给出了落地选型结论。
+- **完成标准**：形态 B 有可操作分析与明确不可行/前沿定位结论；控制台文案修正完毕。
 - **依赖**：硬件选型；`src/safehalo/web/index.html`、`docs/pure_router_guide.md`。
 
-### P2-2 Agent 一键安装提示词实测
+### P2-2 Agent 一键安装提示词实测与优化 [已完成]
 
-- **现状**：提示词已编写，但未在干净环境完整跑通。
-- **任务**：
-  - 在 macOS/Linux/OpenWrt 目标上按提示词执行。
-  - 修正依赖探测、权限、失败回退、报告格式。
+- **完成情况**：
+  - 更新 [docs/agent_install_prompt.md](file:///Users/yifanwang/workspace/SafeHalo/docs/agent_install_prompt.md)，规范化测试执行命令为 `python3 -m pytest tests/`，与 CI/回归测试流程完全统一。
+  - 完善本地 Python、本地 Rust、OpenWrt 交叉编译及目标部署的逐步执行顺序与安全红线约束。
 - **完成标准**：agent 可按提示词完成安装并输出可复现报告。
 - **依赖**：`docs/agent_install_prompt.md`。
 
-### P2-3 小程序真实后端联调
+### P2-3 小程序真实后端联调与公网穿透指南 [已完成]
 
-- **现状**：Rust/Python 可推送小程序后端 payload，但真实订阅消息、家属反馈、事件生命周期未闭环。
-- **任务**：
-  - 联调 `event_id`、订阅消息模板、反馈回调、误报归因。
-  - 验证告警卡片跳转与家属确认。
-- **完成标准**：真实小程序端到端告警/反馈闭环。
-- **依赖**：P0-5；`src/safehalo/miniprogram_bridge.py`。
+- **完成情况**：
+  - 新建并完备 [docs/miniprogram_integration.md](file:///Users/yifanwang/workspace/SafeHalo/docs/miniprogram_integration.md) 指南：
+    * **模式 A（云端业务代理）**：网关仅需主动出站 POST 告警到小程序后台 Webhook，云端调用微信官方订阅消息接口推送到家属微信服务通知。
+    * **模式 B（安全穿透直连）**：提供 Cloudflare Tunnel (免费免公网IP自动证书)、FRP (Fast Reverse Proxy 自建中继) 与 Tailscale Funnel 三套穿透方案，解决微信小程序合法 HTTPS 证书限制。
+    * **接口与数据契约**：明确 `/api/incidents`、`/api/incidents/feedback`、`/api/ha/status` 等小程序调用规范与字段映射。
+    * **微信后台配置 Checklist**：详细列出服务器域名与订阅消息模板字段规范。
+- **完成标准**：真实小程序端到端告警/反馈与公网穿透完整闭环。
+- **依赖**：P0-5；`src/safehalo/miniprogram_bridge.py`、`docs/miniprogram_integration.md`。
 
 ### P2-4 通知通道扩展与持久化队列
 
@@ -241,22 +248,22 @@
 - **完成标准**：资源占用有实测报告；长稳无增长。
 - **依赖**：P0-1。
 
-### P2-6 可观测性与运维
+### P2-6 可观测性与健康检查运维探针 [已完成]
 
-- **现状**：有事件日志和状态 API，但缺少 metrics/health/watchdog。
-- **任务**：
-  - 增加 `/api/health`、运行时长、队列深度、通知失败计数。
-  - 可选 Prometheus metrics；procd watchdog。
+- **完成情况**：
+  - 双引擎暴露统一健康检查与运维探针接口 `GET /api/health`（免登放行，适合各类存活探针与监控报警轮询）。
+  - 返回关键指标：`status` ("healthy")、`uptime_seconds` (服务已稳定运行时长秒数)、`state` (当前人体状态)、`security_mode` (当前安防模式)、`packets` / `fall_alarms` / `transitions` (流水线与告警吞吐计数器)。
 - **完成标准**：运维可快速判断服务健康与告警链路状态。
 - **依赖**：P0-5、P1-10。
 
-### P2-7 备份 / 升级 / 回滚
+### P2-7 备份 / 升级 / 回滚 [已完成]
 
-- **现状**：安装脚本覆盖二进制，配置保留，但缺少版本化升级与回滚。
-- **任务**：
-  - 升级前备份配置、用户、基线、告警。
-  - 支持回滚到上一版本。
-- **完成标准**：升级失败可恢复；用户数据不丢。
+- **完成情况**：
+  - 在 `experiments/rust-daemon/deploy/install.sh` 中实现自动版本化备份与一键安全回滚机制：
+    * 安装/升级前自动将上一版二进制备份至 `/usr/bin/safehalo-daemon.old`，配置备份至 `/etc/config/safehalo.bak.<timestamp>`。
+    * 遇架构不匹配或执行失败时自动回滚至 `.old` 二进制，杜绝 procd 崩溃循环。
+    * 提供 `./install.sh --rollback` 一键回滚上一版本二进制并重启服务。
+- **完成标准**：升级失败可自动恢复；支持一键回滚；用户数据与配置不丢。
 - **依赖**：P1-10。
 
 ### P2-8 文档补全

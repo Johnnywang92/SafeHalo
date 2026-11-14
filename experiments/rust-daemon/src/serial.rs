@@ -74,3 +74,85 @@ pub fn write_command(file: &mut File, cmd: &str) -> bool {
 pub fn read_into(file: &mut File, buf: &mut [u8]) -> std::io::Result<usize> {
     file.read(buf)
 }
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DeviceRole {
+    Sensor,
+    Actuator,
+    SensorActuator,
+}
+
+impl DeviceRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DeviceRole::Sensor => "sensor",
+            DeviceRole::Actuator => "actuator",
+            DeviceRole::SensorActuator => "sensor_actuator",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DeviceInfo {
+    pub id: String,
+    pub device_type: String,
+    pub role: DeviceRole,
+    pub path: String,
+    pub baud: u32,
+    pub status: String,
+    pub last_seen: f64,
+}
+
+impl DeviceInfo {
+    pub fn to_json(&self) -> String {
+        format!(
+            "{{\"id\":\"{}\",\"type\":\"{}\",\"role\":\"{}\",\"path\":\"{}\",\"baud\":{},\"status\":\"{}\",\"last_seen\":{:.1}}}",
+            crate::json::escape(&self.id),
+            crate::json::escape(&self.device_type),
+            self.role.as_str(),
+            crate::json::escape(&self.path),
+            self.baud,
+            crate::json::escape(&self.status),
+            self.last_seen
+        )
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct DeviceRegistry {
+    pub devices: Vec<DeviceInfo>,
+}
+
+impl DeviceRegistry {
+    pub fn new() -> Self {
+        Self { devices: Vec::new() }
+    }
+
+    pub fn register(&mut self, dev: DeviceInfo) {
+        if let Some(existing) = self.devices.iter_mut().find(|d| d.id == dev.id) {
+            *existing = dev;
+        } else {
+            self.devices.push(dev);
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        let items: Vec<String> = self.devices.iter().map(|d| d.to_json()).collect();
+        format!("{{\"devices\":[{}]}}", items.join(","))
+    }
+}
+
+/// Strict whitelist for device commands (protect against arbitrary command injection)
+pub fn is_command_allowed(cmd: &str) -> bool {
+    let trimmed = cmd.trim();
+    if trimmed.starts_with("BURST_RATE:") {
+        let rate_str = &trimmed[11..];
+        return matches!(rate_str, "20" | "30" | "50" | "100");
+    }
+    if trimmed.starts_with("CHALLENGE_BEEP:") {
+        let arg = &trimmed[15..];
+        return matches!(arg, "0" | "1");
+    }
+    matches!(trimmed, "PING" | "REBOOT" | "STATUS")
+}

@@ -5,6 +5,11 @@ __pycache__/
 experiments/*.csv
 experiments/*.log
 logs/*.log
+logs/*.log.*
 logs/*.jsonl
+logs/*.jsonl.tmp
+logs/*.json
 data/*.json
+extracted_sample.html
 experiments/rust-daemon/fixtures/generated/
+experiments/rust-daemon/target/

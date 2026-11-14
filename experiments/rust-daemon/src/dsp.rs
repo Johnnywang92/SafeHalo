@@ -226,7 +226,7 @@ fn hampel(series: &[f64], hampel_threshold: f64) -> f64 {
 
 pub struct SignalFilter {
     guard: usize,
-    hampel_window: usize,
+    pub hampel_window: usize,
     hampel_threshold: f64,
     history: Vec<Vec<f64>>,
 }
