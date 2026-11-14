@@ -1,0 +1,141 @@
+{
+  "verdict": "PASS",
+  "duration_seconds": 15.01,
+  "total_packets": 24250,
+  "throughput_pps": 1615.1,
+  "peak_rss_kb": 2736,
+  "peak_rss_mb": 2.67,
+  "final_rss_kb": 2368,
+  "rss_slope_kb_min": -1106.51,
+  "peak_fds": 45,
+  "total_storage_bytes": 4630,
+  "flash_kb_per_hour": 20.14,
+  "samples": [
+    {
+      "time_s": 1.01,
+      "packets": 1700,
+      "rss_kb": 2608,
+      "rss_mb": 2.55,
+      "fd_count": 45,
+      "storage_bytes": 1583,
+      "mode": "still"
+    },
+    {
+      "time_s": 2.01,
+      "packets": 3300,
+      "rss_kb": 2720,
+      "rss_mb": 2.66,
+      "fd_count": 45,
+      "storage_bytes": 1584,
+      "mode": "still"
+    },
+    {
+      "time_s": 3.03,
+      "packets": 4900,
+      "rss_kb": 2736,
+      "rss_mb": 2.67,
+      "fd_count": 45,
+      "storage_bytes": 1783,
+      "mode": "walk"
+    },
+    {
+      "time_s": 4.06,
+      "packets": 6550,
+      "rss_kb": 2368,
+      "rss_mb": 2.31,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "walk"
+    },
+    {
+      "time_s": 5.06,
+      "packets": 8150,
+      "rss_kb": 2368,
+      "rss_mb": 2.31,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "walk"
+    },
+    {
+      "time_s": 6.07,
+      "packets": 9800,
+      "rss_kb": 2368,
+      "rss_mb": 2.31,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "walk"
+    },
+    {
+      "time_s": 7.08,
+      "packets": 11400,
+      "rss_kb": 2208,
+      "rss_mb": 2.16,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "walk"
+    },
+    {
+      "time_s": 8.09,
+      "packets": 13000,
+      "rss_kb": 2256,
+      "rss_mb": 2.2,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "walk"
+    },
+    {
+      "time_s": 9.11,
+      "packets": 14700,
+      "rss_kb": 2256,
+      "rss_mb": 2.2,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "walk"
+    },
+    {
+      "time_s": 10.11,
+      "packets": 16400,
+      "rss_kb": 2256,
+      "rss_mb": 2.2,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "walk"
+    },
+    {
+      "time_s": 11.11,
+      "packets": 18100,
+      "rss_kb": 2240,
+      "rss_mb": 2.19,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "walk"
+    },
+    {
+      "time_s": 12.13,
+      "packets": 19700,
+      "rss_kb": 2256,
+      "rss_mb": 2.2,
+      "fd_count": 45,
+      "storage_bytes": 1876,
+      "mode": "impact"
+    },
+    {
+      "time_s": 13.15,
+      "packets": 21350,
+      "rss_kb": 2368,
+      "rss_mb": 2.31,
+      "fd_count": 45,
+      "storage_bytes": 3545,
+      "mode": "still"
+    },
+    {
+      "time_s": 14.16,
+      "packets": 22950,
+      "rss_kb": 2368,
+      "rss_mb": 2.31,
+      "fd_count": 45,
+      "storage_bytes": 4630,
+      "mode": "still"
+    }
+  ]
+}
