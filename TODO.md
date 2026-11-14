@@ -24,6 +24,9 @@
 - 误报反馈靶向调参与试点统计真实化（P1-3 & P1-4）：Rust 实现 `Placement.apply_false_alarm_feedback`（宠物/水花/风扇窗帘/杂物/跌倒误判靶向调优，上下限防越界，持久化落盘 `placement_config.json` 并动态同步检测管线参数）；`/api/phase2/pilot` 与 `/api/phase2/pilot/report` 支持 5 户试点月度动态统计、达标率评估（月误报 ≤ 2）及 Markdown 评估报告导出。
 - 双引擎架构边界与 Home Assistant 互联契约对齐（P1-5 ~ P1-8）：明确 Python（全功能、双模态、多链路、长周期作息）与 Rust（<2MB 超轻量、零依赖、Wi-Fi CSI、极速跌倒与入侵守护）架构边界与优雅降级标准；双引擎 `/api/ha/status` 对齐补齐 `security_mode`；升级 `docs/home_assistant_integration.md`，提供 MQTT Discovery（Python 原生）、RESTful（Rust 端口 8091 / Python 端口 8080）与 Webhook 全套即插即用模版与双引擎能力矩阵。
 - 设备抽象、OpenWrt 安装健壮性与前端契约自动化（P1-9, P1-10, P1-12）：实现通用硬件 `DeviceRegistry` 与安全白名单指令接口（`/api/devices`、`/api/devices/command`）；`install.sh` 增加基于 ELF 字节序的精准架构探测、分区空间预检与配置自动备份；新增 `tests/test_web_contract.py`，全量覆盖前端 22 个 `fetch` 接口在双引擎中的有效实现与字段绑定。
+- 通知通道扩展与 Bark iOS 关键警报突破（P2-4）：双引擎支持 Bark 强提醒（突破静音/专注模式），提供重试队列、重启恢复与死信机制。
+- 试点现场标准作业规范（P2-8）：发布 `docs/pilot_sop.md`，提供现场安装、0.5~1.2m 物理定位、Wi-Fi 20MHz 锁频、5 秒静默标定与故障排障流程。
+- 隐私合规与数据脱敏工具链（P3-3）：发布 `scripts/sanitize_logs.py` 与测试套件，支持 MAC 假名化、Token/密码/手机号掩码与 `--check` 合规门禁。
 - 四架构 musl 静态交叉编译；`verify/run_service.sh` 53 项服务回归通过；Python `tests/test_web_security.py` 9 项安全用例通过。
 - README 详细部署流程与 Agent 一键安装提示词。
 
@@ -230,12 +233,14 @@
 - **完成标准**：真实小程序端到端告警/反馈与公网穿透完整闭环。
 - **依赖**：P0-5；`src/safehalo/miniprogram_bridge.py`、`docs/miniprogram_integration.md`。
 
-### P2-4 通知通道扩展与持久化队列
+### P2-4 通知通道扩展与持久化队列 [已完成]
 
-- **现状**：已有 PushPlus/ServerChan/Webhook/HA/SMS/小程序；缺少邮件、Telegram、Bark、MQTT publish 等。
-- **任务**：
-  - 按试点需求增加通道。
-  - 通知队列持久化，重启后恢复。
+- **完成情况**：
+  - 双引擎拓展支持 **iOS Bark 关键警告强提醒** 通道：
+    * Python `notifier.py` 与 Rust `notify.rs` 统一实现 Bark 通道推送与凭证存储 (`bark_key`)。
+    * 跌倒告警标记为 `level: "critical"`, `volume: 10`, `sound: "alarm"`，突破 iPhone 静音开关、睡眠专注模式与免打扰强效提醒。
+    * Rust 端支持 CLI 参数 `--bark-key`，HTTP 接口 `/api/onboarding/config`、`/api/onboarding/test_push` 与 `/api/test_push` 均已打通；
+    * 结合 P0-5 已实现的指数退避重试队列、进程重启恢复与死信丢弃，通知分发可靠性达到工业级。
 - **完成标准**：通道可配置、可测试、失败可追踪。
 - **依赖**：P0-5。
 
@@ -266,11 +271,14 @@
 - **完成标准**：升级失败可自动恢复；支持一键回滚；用户数据与配置不丢。
 - **依赖**：P1-10。
 
-### P2-8 文档补全
+### P2-8 试点家庭安装与排障标准作业规范 (SOP) [已完成]
 
-- **现状**：README 部署流程已完成；远程访问、故障排查、数据导出、试点 SOP 仍可细化。
-- **任务**：
-  - 补充远程访问安全、常见故障、试点安装 SOP、数据脱敏流程。
+- **完成情况**：
+  - 编制完备的试点现场交付作业手册 [docs/pilot_sop.md](file:///Users/yifanwang/workspace/SafeHalo/docs/pilot_sop.md)：
+    * 覆盖硬件物料准备、射频探针 0.5m~1.2m 物理定位原则、天线极化与高危区域（床沿/浴室门）规避金属镜面反射规范。
+    * 详述无线路由器强制固定 20MHz 频宽、固定 Clean 信道（CH 1/6/11）及关闭动态跳频规范。
+    * 规范 5 秒静默标定执行标准、人性化向导及微信/Bark 关键告警强提醒闭环。
+    * 提供现场验收 Checklist、误报/弱信号/串口断开自愈排障流程图。
 - **完成标准**：非开发者可按文档完成部署与试点。
 - **依赖**：P0/P1 稳定后。
 
@@ -288,10 +296,18 @@
 - 基于多日基线与住户画像做个性化阈值/模型，降低跨房间迁移成本。
 - 依赖：P0-2、P1-3、P3-1。
 
-### P3-3 隐私合规与脱敏工具链
+### P3-3 隐私合规与脱敏工具链 [已完成]
 
-- 自动检测录制数据中的可识别家庭信息，生成脱敏副本与审计记录。
-- 依赖：P0-6。
+- **完成情况**：
+  - 开发完成专业合规脱敏工具 [scripts/sanitize_logs.py](file:///Users/yifanwang/workspace/SafeHalo/scripts/sanitize_logs.py)：
+    * **MAC/BSSID 一致性假名化**：基于会话级加盐哈希将真实 MAC 转为 `[MAC:xxxx]`，隐匿实体路由同时保持多 AP 拓扑可分析性。
+    * **机密凭证抹除**：自动识别并脱敏 `pushplus_token`、`serverchan_key`、`bark_key`、`miniprogram_token`、`api_token`、密码哈希与 salt。
+    * **个人身份信息保护**：自动对 11 位手机号、受监护长辈昵称进行脱敏掩码。
+    * **Webhook URL 密钥剔除**：智能识别飞书/企微/钉钉/Server酱/Bark 链接中的嵌入式秘钥。
+    * **合规自检与审计**：提供 `--check` 参数实现 CI/CD 或外发前自动化隐私门禁。
+    * 配套单元测试套件 [tests/test_sanitize_logs.py](file:///Users/yifanwang/workspace/SafeHalo/tests/test_sanitize_logs.py)。
+- **完成标准**：自动检测录制数据中的可识别家庭信息，生成脱敏副本与审计记录。
+- **依赖**：P0-6。
 
 ### P3-4 产品化硬件与 OTA
 

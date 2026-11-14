@@ -4,6 +4,7 @@ SafeHalo 移动端通知与告警模块 (notifier.py)
 1. 微信服务号 / 模板消息推送 (PushPlus / Server酱) - 免装 App，全家微信即时弹窗
 2. 自定义 Webhook (支持飞书/企业微信/钉钉群机器人)
 3. 短信 / 语音外呼 Webhook 接口 (如阿里云、腾讯云 SMS)
+4. iOS Bark 关键警告强提醒 (可突破 iPhone 静音开关与勿扰专注模式，夜间必达)
 """
 
 import json
@@ -26,6 +27,7 @@ class AlertNotifier:
         webhook_url: Optional[str] = None,
         ha_webhook_url: Optional[str] = None,
         sms_webhook_url: Optional[str] = None,
+        bark_key: Optional[str] = None,
         config_file: str = NOTIFIER_CONFIG_PATH,
     ):
         """
@@ -34,6 +36,7 @@ class AlertNotifier:
         :param webhook_url: 企业微信/飞书/钉钉机器人 Webhook 地址
         :param ha_webhook_url: Home Assistant 原生自动化 Webhook 地址 (如 http://homeassistant.local:8123/api/webhook/safehalo_fall)
         :param sms_webhook_url: 短信 / 语音外呼网关 Webhook 地址 (如阿里云、腾讯云或 Twilio 语音外呼触发接口)
+        :param bark_key: iOS Bark 设备推送 Key (可突破 iPhone 专注模式与静音开关发出警报声)
         """
         self.config_file = config_file
         self.pushplus_token = pushplus_token
@@ -41,6 +44,7 @@ class AlertNotifier:
         self.webhook_url = webhook_url
         self.ha_webhook_url = ha_webhook_url
         self.sms_webhook_url = sms_webhook_url
+        self.bark_key = bark_key
         self._last_alert_room: str = ""
         self._last_alert_time: float = 0.0
 
@@ -62,6 +66,8 @@ class AlertNotifier:
                         self.ha_webhook_url = cfg.get("ha_webhook_url") or None
                     if not self.sms_webhook_url:
                         self.sms_webhook_url = cfg.get("sms_webhook_url") or None
+                    if not self.bark_key:
+                        self.bark_key = cfg.get("bark_key") or None
             except Exception as e:
                 logger.error(f"[Notifier] 读取通知配置失败: {e}")
 
@@ -72,6 +78,7 @@ class AlertNotifier:
         webhook_url: Optional[str] = None,
         ha_webhook_url: Optional[str] = None,
         sms_webhook_url: Optional[str] = None,
+        bark_key: Optional[str] = None,
     ) -> Dict[str, str]:
         """更新并持久化移动端通知凭据"""
         if pushplus_token is not None:
@@ -84,6 +91,8 @@ class AlertNotifier:
             self.ha_webhook_url = ha_webhook_url.strip() or None
         if sms_webhook_url is not None:
             self.sms_webhook_url = sms_webhook_url.strip() or None
+        if bark_key is not None:
+            self.bark_key = bark_key.strip() or None
 
         payload = {
             "pushplus_token": self.pushplus_token or "",
@@ -91,6 +100,7 @@ class AlertNotifier:
             "webhook_url": self.webhook_url or "",
             "ha_webhook_url": self.ha_webhook_url or "",
             "sms_webhook_url": self.sms_webhook_url or "",
+            "bark_key": self.bark_key or "",
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
         try:
@@ -186,7 +196,12 @@ class AlertNotifier:
                 household_id=household_id,
             ) or success
 
-        if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.ha_webhook_url or self.sms_webhook_url):
+        # 6. iOS Bark 关键警报强提醒 (突破静音/勿扰)
+        if self.bark_key:
+            bark_body = f"监测位置: {room_name}\n置信度: {confidence} | 呼吸: {bpm:.0f} bpm\n事件编号: {event_id}\n{details}\n请立即确认老人安全！"
+            success = self._send_bark(title, bark_body, critical=True, sound="alarm") or success
+
+        if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.ha_webhook_url or self.sms_webhook_url or self.bark_key):
             logger.info(f"[Notifier 本地模拟推送] {title} - {details}")
             return True
 
@@ -214,8 +229,11 @@ class AlertNotifier:
             success = self._send_serverchan(title, content) or success
         if self.webhook_url:
             success = self._send_webhook(title, content) or success
+        if self.bark_key:
+            bark_body = f"告警位置: {room_name}\n安防状态: 离家布防中\n{details}\n屋内检测到明确人员移动信号！"
+            success = self._send_bark(title, bark_body, critical=True, sound="alarm") or success
 
-        if not (self.pushplus_token or self.serverchan_key or self.webhook_url):
+        if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.bark_key):
             print(f"[Notifier 本地模拟防盗推送] {title}\n{content}")
             return True
 
@@ -250,12 +268,40 @@ class AlertNotifier:
                 confidence="高",
                 details=description,
             ) or success
+        if self.bark_key:
+            bark_body = f"偏离详情: {description}\n建议: 请核实老人起居状况。"
+            is_critical = (severity == "ALERT")
+            success = self._send_bark(formatted_title, bark_body, critical=is_critical, sound="anticipate") or success
 
-        if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.ha_webhook_url):
+        if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.ha_webhook_url or self.bark_key):
             logger.info(f"[Notifier 本地模拟作息偏离通报] {formatted_title} - {description}")
             return True
 
         return success
+
+    def _send_bark(
+        self,
+        title: str,
+        body: str,
+        critical: bool = True,
+        sound: str = "alarm",
+    ) -> bool:
+        """通过 iOS Bark 客户端发送推送（支持 critical 突破静音与勿扰）"""
+        if not self.bark_key:
+            return False
+        if self.bark_key.startswith("http://") or self.bark_key.startswith("https://"):
+            url = self.bark_key
+        else:
+            url = f"https://api.day.app/{self.bark_key}"
+        payload = {
+            "title": title,
+            "body": body,
+            "level": "critical" if critical else "timeSensitive",
+            "volume": 10 if critical else 5,
+            "sound": sound,
+            "group": "SafeHalo",
+        }
+        return self._http_post_json(url, payload)
 
     def _send_pushplus(self, title: str, markdown_content: str) -> bool:
         url = "http://www.pushplus.plus/send"

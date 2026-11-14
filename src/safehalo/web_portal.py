@@ -427,6 +427,7 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             enable_gentle_challenge = bool(data.get("enable_gentle_challenge", True))
             pushplus_token = (data.get("pushplus_token") or "").strip()
             webhook_url = (data.get("webhook_url") or "").strip()
+            bark_key = (data.get("bark_key") or "").strip()
 
             cfg, params = placement_adapter.save_config(
                 room_type=r_type,
@@ -443,14 +444,16 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             )
 
             # 若用户在向导第 3 步填写了通知凭证，立即持久化保存并同步给通知引擎
-            if pushplus_token or webhook_url:
+            if pushplus_token or webhook_url or bark_key:
                 notifier = AlertNotifier(
                     pushplus_token=pushplus_token if pushplus_token else None,
                     webhook_url=webhook_url if webhook_url else None,
+                    bark_key=bark_key if bark_key else None,
                 )
                 notifier.update_config(
                     pushplus_token=pushplus_token if pushplus_token else None,
                     webhook_url=webhook_url if webhook_url else None,
+                    bark_key=bark_key if bark_key else None,
                 )
                 if hasattr(SafeHaloWebHandler, "on_notifier_updated") and SafeHaloWebHandler.on_notifier_updated:
                     try:
@@ -504,16 +507,19 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                     return
             token = (data.get("pushplus_token") or "").strip()
             webhook_url = (data.get("webhook_url") or "").strip()
+            bark_key = (data.get("bark_key") or "").strip()
             nickname = (data.get("care_nickname") or placement_adapter.current_config.care_nickname or "家里长辈").strip()
             room_name = (data.get("room_name") or placement_adapter.current_config.room_name or "客厅").strip()
             notifier = AlertNotifier(
                 pushplus_token=token if token else None,
                 webhook_url=webhook_url if webhook_url else None,
+                bark_key=bark_key if bark_key else None,
             )
-            if token or webhook_url:
+            if token or webhook_url or bark_key:
                 notifier.update_config(
                     pushplus_token=token if token else None,
                     webhook_url=webhook_url if webhook_url else None,
+                    bark_key=bark_key if bark_key else None,
                 )
                 if hasattr(SafeHaloWebHandler, "on_notifier_updated") and SafeHaloWebHandler.on_notifier_updated:
                     try:
@@ -651,16 +657,19 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             token = data.get("pushplus_token", "").strip()
             webhook_url = data.get("webhook_url", "").strip()
             sms_webhook_url = data.get("sms_webhook_url", "").strip()
+            bark_key = data.get("bark_key", "").strip()
             notifier = AlertNotifier(
                 pushplus_token=token if token else None,
                 webhook_url=webhook_url if webhook_url else None,
                 sms_webhook_url=sms_webhook_url if sms_webhook_url else None,
+                bark_key=bark_key if bark_key else None,
             )
-            if token or webhook_url or sms_webhook_url:
+            if token or webhook_url or sms_webhook_url or bark_key:
                 notifier.update_config(
                     pushplus_token=token if token else None,
                     webhook_url=webhook_url if webhook_url else None,
                     sms_webhook_url=sms_webhook_url if sms_webhook_url else None,
+                    bark_key=bark_key if bark_key else None,
                 )
                 if hasattr(SafeHaloWebHandler, "on_notifier_updated") and SafeHaloWebHandler.on_notifier_updated:
                     try:

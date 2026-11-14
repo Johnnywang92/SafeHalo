@@ -715,13 +715,17 @@ fn handle_post(
             p.is_configured = true;
             let token = jstr(&data, "pushplus_token");
             let webhook = jstr(&data, "webhook_url");
-            if !token.is_empty() || !webhook.is_empty() {
+            let bark = jstr(&data, "bark_key");
+            if !token.is_empty() || !webhook.is_empty() || !bark.is_empty() {
                 notifier.update(|c| {
                     if !token.is_empty() {
                         c.pushplus_token = token.clone();
                     }
                     if !webhook.is_empty() {
                         c.webhook_url = webhook.clone();
+                    }
+                    if !bark.is_empty() {
+                        c.bark_key = bark.clone();
                     }
                 });
             }
@@ -764,6 +768,7 @@ fn handle_post(
             }
             let token = jstr(&data, "pushplus_token");
             let webhook = jstr(&data, "webhook_url");
+            let bark = jstr(&data, "bark_key");
             let nickname = {
                 let s = bus.lock();
                 let n = jstr(&data, "care_nickname");
@@ -774,13 +779,16 @@ fn handle_post(
                 let r = jstr(&data, "room_name");
                 if r.is_empty() { s.placement.room_name.clone() } else { r }
             };
-            if !token.is_empty() || !webhook.is_empty() {
+            if !token.is_empty() || !webhook.is_empty() || !bark.is_empty() {
                 notifier.update(|c| {
                     if !token.is_empty() {
                         c.pushplus_token = token.clone();
                     }
                     if !webhook.is_empty() {
                         c.webhook_url = webhook.clone();
+                    }
+                    if !bark.is_empty() {
+                        c.bark_key = bark.clone();
                     }
                 });
             }
@@ -883,7 +891,8 @@ fn handle_post(
                 let token = jstr(&data, "pushplus_token");
                 let webhook = jstr(&data, "webhook_url");
                 let sms = jstr(&data, "sms_webhook_url");
-                if !token.is_empty() || !webhook.is_empty() || !sms.is_empty() {
+                let bark = jstr(&data, "bark_key");
+                if !token.is_empty() || !webhook.is_empty() || !sms.is_empty() || !bark.is_empty() {
                     notifier.update(|c| {
                         if !token.is_empty() {
                             c.pushplus_token = token.clone();
@@ -893,6 +902,9 @@ fn handle_post(
                         }
                         if !sms.is_empty() {
                             c.sms_webhook_url = sms.clone();
+                        }
+                        if !bark.is_empty() {
+                            c.bark_key = bark.clone();
                         }
                     });
                 }

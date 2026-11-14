@@ -76,6 +76,7 @@ struct Args {
     sms_webhook: String,
     miniprogram_url: String,
     miniprogram_token: String,
+    bark_key: String,
     notify_timeout: Option<u64>,
 }
 
@@ -114,6 +115,7 @@ fn usage() -> ! {
          \x20 --sms-webhook URL       SMS gateway webhook endpoint\n\
          \x20 --miniprogram-url URL   mini-program backend endpoint\n\
          \x20 --miniprogram-token T   mini-program bearer token\n\
+         \x20 --bark-key KEY          iOS Bark notification key / custom endpoint\n\
          \x20 --notify-timeout N      notification HTTP timeout seconds (default 5)\n\
          Graceful shutdown: --run-secs / --max-packets limits, or procd stop."
     );
@@ -157,6 +159,7 @@ fn parse_args() -> Args {
         sms_webhook: String::new(),
         miniprogram_url: String::new(),
         miniprogram_token: String::new(),
+        bark_key: String::new(),
         notify_timeout: None,
     };
     let mut it = std::env::args().skip(1);
@@ -208,6 +211,7 @@ fn parse_args() -> Args {
             "--sms-webhook" => a.sms_webhook = need(),
             "--miniprogram-url" => a.miniprogram_url = need(),
             "--miniprogram-token" => a.miniprogram_token = need(),
+            "--bark-key" => a.bark_key = need(),
             "--notify-timeout" => a.notify_timeout = Some(need().parse().unwrap_or_else(|_| usage())),
             "--help" | "-h" => usage(),
             other => {
@@ -741,6 +745,7 @@ fn main() {
         (&args.sms_webhook, &mut notify_cfg.sms_webhook_url),
         (&args.miniprogram_url, &mut notify_cfg.miniprogram_url),
         (&args.miniprogram_token, &mut notify_cfg.miniprogram_token),
+        (&args.bark_key, &mut notify_cfg.bark_key),
     ];
     for (value, slot) in overrides {
         if !value.is_empty() {

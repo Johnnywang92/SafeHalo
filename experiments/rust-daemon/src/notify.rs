@@ -26,6 +26,7 @@ pub const CHAN_WEBHOOK: &str = "webhook";
 pub const CHAN_HA_WEBHOOK: &str = "ha_webhook";
 pub const CHAN_SMS_WEBHOOK: &str = "sms_webhook";
 pub const CHAN_MINIPROGRAM: &str = "miniprogram";
+pub const CHAN_BARK: &str = "bark";
 
 pub const MAX_RETRIES: u32 = 5;
 
@@ -49,6 +50,7 @@ pub struct NotifyConfig {
     pub sms_webhook_url: String,
     pub miniprogram_url: String,
     pub miniprogram_token: String,
+    pub bark_key: String,
     pub timeout_secs: u64,
 }
 
@@ -73,6 +75,9 @@ impl NotifyConfig {
         if !self.miniprogram_url.is_empty() {
             list.push(CHAN_MINIPROGRAM);
         }
+        if !self.bark_key.is_empty() {
+            list.push(CHAN_BARK);
+        }
         list
     }
 
@@ -96,6 +101,7 @@ impl NotifyConfig {
                 cfg.sms_webhook_url = g("sms_webhook_url");
                 cfg.miniprogram_url = g("miniprogram_url");
                 cfg.miniprogram_token = g("miniprogram_token");
+                cfg.bark_key = g("bark_key");
                 if let Some(t) = v.get("timeout_secs").and_then(|x| x.as_u64()) {
                     if t > 0 {
                         cfg.timeout_secs = t;
@@ -109,7 +115,7 @@ impl NotifyConfig {
     pub fn save(&self, dir: &str) {
         let _ = fs::create_dir_all(dir);
         let text = format!(
-            "{{\n  \"pushplus_token\": \"{}\",\n  \"serverchan_key\": \"{}\",\n  \"webhook_url\": \"{}\",\n  \"ha_webhook_url\": \"{}\",\n  \"sms_webhook_url\": \"{}\",\n  \"miniprogram_url\": \"{}\",\n  \"miniprogram_token\": \"{}\",\n  \"timeout_secs\": {}\n}}\n",
+            "{{\n  \"pushplus_token\": \"{}\",\n  \"serverchan_key\": \"{}\",\n  \"webhook_url\": \"{}\",\n  \"ha_webhook_url\": \"{}\",\n  \"sms_webhook_url\": \"{}\",\n  \"miniprogram_url\": \"{}\",\n  \"miniprogram_token\": \"{}\",\n  \"bark_key\": \"{}\",\n  \"timeout_secs\": {}\n}}\n",
             json::escape(&self.pushplus_token),
             json::escape(&self.serverchan_key),
             json::escape(&self.webhook_url),
@@ -117,6 +123,7 @@ impl NotifyConfig {
             json::escape(&self.sms_webhook_url),
             json::escape(&self.miniprogram_url),
             json::escape(&self.miniprogram_token),
+            json::escape(&self.bark_key),
             self.timeout_secs
         );
         let path = PathBuf::from(dir).join("notifier_config.json");
@@ -795,6 +802,51 @@ fn deliver_channel(cfg: &NotifyConfig, channel: &str, n: &Notice, timeout: Durat
             );
             post_json(&cfg.ha_webhook_url, &body, timeout)
         }
+        (
+            Notice::Fall {
+                room,
+                confidence,
+                details,
+                bpm,
+                event_id,
+                ..
+            },
+            CHAN_BARK,
+        ) => {
+            let title = "🚨【紧急预警】SafeHalo 检测到疑似跌倒！";
+            let body = format!(
+                "监测位置: {}\n置信度: {:.0}%\n呼吸估计: {:.0} bpm\n事件编号: {}\n附带信息: {}\n请立即确认老人安全！",
+                room,
+                confidence * 100.0,
+                bpm,
+                event_id,
+                details
+            );
+            let url = if cfg.bark_key.starts_with("http://") || cfg.bark_key.starts_with("https://") {
+                cfg.bark_key.clone()
+            } else {
+                format!("https://api.day.app/{}", cfg.bark_key)
+            };
+            let json_body = format!(
+                "{{\"title\":\"{}\",\"body\":\"{}\",\"level\":\"critical\",\"volume\":10,\"sound\":\"alarm\",\"group\":\"SafeHalo\"}}",
+                json::escape(title),
+                json::escape(&body)
+            );
+            post_json(&url, &json_body, timeout)
+        }
+        (Notice::Generic { title, content, .. }, CHAN_BARK) => {
+            let url = if cfg.bark_key.starts_with("http://") || cfg.bark_key.starts_with("https://") {
+                cfg.bark_key.clone()
+            } else {
+                format!("https://api.day.app/{}", cfg.bark_key)
+            };
+            let json_body = format!(
+                "{{\"title\":\"{}\",\"body\":\"{}\",\"level\":\"timeSensitive\",\"sound\":\"anticipate\",\"group\":\"SafeHalo\"}}",
+                json::escape(title),
+                json::escape(content)
+            );
+            post_json(&url, &json_body, timeout)
+        }
         _ => false,
     }
 }
@@ -972,11 +1024,15 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let mut c = NotifyConfig::default();
         c.pushplus_token = "abc".into();
+        c.bark_key = "device_key_123".into();
         c.timeout_secs = 7;
+        assert!(c.configured_channel_names().contains(&CHAN_BARK));
         c.save(dir.to_str().unwrap());
         let loaded = NotifyConfig::load(dir.to_str().unwrap());
         assert_eq!(loaded.pushplus_token, "abc");
+        assert_eq!(loaded.bark_key, "device_key_123");
         assert_eq!(loaded.timeout_secs, 7);
+        assert!(loaded.configured_channel_names().contains(&CHAN_BARK));
         let _ = fs::remove_dir_all(&dir);
     }
 
