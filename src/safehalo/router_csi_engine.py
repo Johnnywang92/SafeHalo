@@ -28,10 +28,14 @@ class RouterCSIEngine:
         object_confirm_seconds: float = 0.0,
         object_confirm_cv: float = 0.35,
         object_confirm_min_intervals: int = 3,
+        enable_peak_regularity: bool = False,
+        peak_regularity_cv: float = 0.35,
     ):
         """
         :param router_mac: 路由器的 BSSID / MAC 地址 (如 "aa:bb:cc:dd:ee:ff")，若提供则自动锁定家网
         :param rssi_floor: 穿墙信号强度门限 (默认 -72 dBm)，低于该门限判定为邻居墙外弱信号自动丢弃
+        :param enable_peak_regularity: (P0-3) 是否启用呼吸峰间隔规整度与准周期性抗噪检验
+        :param peak_regularity_cv: 呼吸峰间隔变异系数 (CV) 门限
         """
         self.router_mac = router_mac.lower().replace("-", ":") if router_mac else None
         self.parser = CSIParser()
@@ -52,6 +56,8 @@ class RouterCSIEngine:
             object_confirm_seconds=object_confirm_seconds,
             object_confirm_cv=object_confirm_cv,
             object_confirm_min_intervals=object_confirm_min_intervals,
+            enable_peak_regularity=enable_peak_regularity,
+            peak_regularity_cv=peak_regularity_cv,
         )
 
         # 统计计数

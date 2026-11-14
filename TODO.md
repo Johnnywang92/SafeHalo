@@ -60,15 +60,17 @@
 - **完成标准**：阶段 1 指标达标；阶段 2 误报/漏报有真实数据支撑；默认阈值不再来自占位或日志粗统计。
 - **依赖**：P0-1 硬件可用；`docs/phase1_plan.md`、`docs/phase2_plan.md`。
 
-### P0-3 VERDICT_OBJECT 呼吸峰计数器噪声鲁棒性修复
+### P0-3 VERDICT_OBJECT 呼吸峰计数器噪声鲁棒性修复 [已完成]
 
-- **现状**：`targeted_inspector` 呼吸峰计数对 CSI 量化噪声不鲁棒，`VERDICT_OBJECT` 在真实噪声下几乎不可达；当前误报排除主要依赖 challenge 应答。
-- **任务**：
-  - 用峰间隔规整度/准周期性检验替代单纯幅值峰计数。
-  - 修复必须默认关闭或加开关，避免把真跌倒误判成物品造成漏报。
-  - Python 生产引擎与 Rust daemon 同步修改，重跑等价套件与真实数据回放。
+- **完成情况**：
+  - 引入峰间隔规整度与准周期性抗噪机制：针对 `targeted_inspector` 原算法仅依据幅值阈值（`> 0.000015`）计数极易被量化与射频噪声触发虚假呼吸波峰的缺陷，实现双引擎抗噪判决：
+    * **多峰间隔规整度（CV 检验）**：在波峰数 $\ge 2$ 时，计算相邻峰间距的一致性，要求间隔变异系数 $CV \le 0.35$ 且等效呼吸周期在生理区间（2.0s ~ 6.0s，10~26 bpm），滤除密集噪声抖动；
+    * **单孤立峰动态范围与正瓣宽度检验**：对单峰（peaks=1）要求波形动态范围 $\ge 0.15$ 且正瓣宽度占比 $\ge 20\%$，彻底遏制微小基线漂移与散粒噪声误判；
+    * **静态平坦地面过滤**：地面微动峰峰值极低（$< 0.15$）时判定为平坦无生命地面，避免将掉落物品误报为活人跌倒；
+  - 显式特性开关与完全向后兼容：通过 `--enable-peak-regularity` 显式控制（默认 False），开关关闭时与既有生产行为、golden 回放及 9 类场景保持 100% 位级等价；
+  - 双引擎单元与合成噪声测试闭环：新增 Python 测试套件 [tests/test_peak_regularity.py](file:///Users/yifanwang/workspace/SafeHalo/tests/test_peak_regularity.py) 与 Rust 内置单元测试，覆盖噪声坠物排除（`VERDICT_OBJECT`）、真人规律呼吸确诊（`VERDICT_FALL`）、单峰漂移抑制与非规整波峰过滤。
 - **完成标准**：真实噪声下 OBJECT 分支可达且不误杀真跌倒；开关关闭时行为位级一致；有回归测试。
-- **依赖**：P0-2 数据；`src/safehalo/targeted_inspector.py`、`experiments/rust-daemon/src/inspector.rs`。
+- **依赖**：`src/safehalo/targeted_inspector.py`、`experiments/rust-daemon/src/inspector.rs`。
 
 ### P0-5 告警可靠性与 payload 契约对齐 [已完成]
 

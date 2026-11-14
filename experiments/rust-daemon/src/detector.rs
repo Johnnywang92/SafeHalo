@@ -78,10 +78,15 @@ impl Detector {
         object_confirm_seconds: f64,
         object_confirm_cv: f64,
         object_confirm_min_intervals: usize,
+        enable_peak_regularity: bool,
+        peak_regularity_cv: f64,
         calibrator: Calibrator,
     ) -> Self {
         let base_variance = calibrator.state.base_variance;
         let base_diff = calibrator.state.base_diff;
+        let mut inspector = Inspector::new(stillness_seconds);
+        inspector.enable_peak_regularity = enable_peak_regularity;
+        inspector.peak_regularity_cv = peak_regularity_cv;
         Detector {
             calibration_seconds,
             fall_spike_threshold: 2.0,
@@ -95,7 +100,7 @@ impl Detector {
             calib_diffs: Vec::new(),
             fall_spike_time: None,
             pet: PetFilter::new(),
-            inspector: Inspector::new(stillness_seconds),
+            inspector,
             object_confirm_seconds,
             object_confirm_cv,
             object_confirm_min_intervals,

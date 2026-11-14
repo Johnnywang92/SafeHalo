@@ -132,6 +132,8 @@ det = detector_mod.RouterCSIDetector(
     object_confirm_seconds=float(os.environ.get("OBJECT_CONFIRM_SECS", "0")),
     object_confirm_cv=float(os.environ.get("OBJECT_CONFIRM_CV", "0.35")),
     object_confirm_min_intervals=int(os.environ.get("OBJECT_CONFIRM_MIN_INTERVALS", "3")),
+    enable_peak_regularity=os.environ.get("ENABLE_PEAK_REGULARITY") in ("1", "true", "True"),
+    peak_regularity_cv=float(os.environ.get("PEAK_REGULARITY_CV", "0.35")),
 )
 
 packets = parse_dropped = neighbor_rejected = accepted = features_count = 0

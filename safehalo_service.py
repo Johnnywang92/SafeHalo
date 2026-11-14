@@ -56,6 +56,8 @@ class SafeHaloSupervisor:
         object_confirm_seconds: float = 0.0,
         object_confirm_cv: float = 0.35,
         object_confirm_min_intervals: int = 3,
+        enable_peak_regularity: bool = False,
+        peak_regularity_cv: float = 0.35,
     ):
         self.web_port = web_port
         self.web_host = web_host
@@ -75,6 +77,8 @@ class SafeHaloSupervisor:
         self.object_confirm_seconds = object_confirm_seconds
         self.object_confirm_cv = object_confirm_cv
         self.object_confirm_min_intervals = object_confirm_min_intervals
+        self.enable_peak_regularity = enable_peak_regularity
+        self.peak_regularity_cv = peak_regularity_cv
 
         self.running = True
         self._active_csi_serial = None
@@ -121,6 +125,8 @@ class SafeHaloSupervisor:
             object_confirm_seconds=self.object_confirm_seconds,
             object_confirm_cv=self.object_confirm_cv,
             object_confirm_min_intervals=self.object_confirm_min_intervals,
+            enable_peak_regularity=self.enable_peak_regularity,
+            peak_regularity_cv=self.peak_regularity_cv,
         )
 
         # 多链路空间分集融合引擎 (支持单/多路由器自动解耦与房间级定位)
@@ -595,6 +601,10 @@ def main():
                         help="峰间隔变异系数阈值 (占位值, 待真数据标定)")
     parser.add_argument("--object-confirm-min-intervals", type=int, default=3,
                         help="长窗确认所需的最少峰间隔数 (少于该值不下结论)")
+    parser.add_argument("--enable-peak-regularity", action="store_true", default=False,
+                        help="(P0-3) 启用阶段一呼吸峰间隔规整度与准周期性抗噪检验 (默认关闭)")
+    parser.add_argument("--peak-regularity-cv", type=float, default=0.35,
+                        help="阶段一呼吸峰间隔变异系数 (CV) 门限 (默认 0.35)")
 
     args = parser.parse_args()
 
@@ -618,6 +628,8 @@ def main():
         object_confirm_seconds=args.object_confirm_secs,
         object_confirm_cv=args.object_confirm_cv,
         object_confirm_min_intervals=args.object_confirm_min_intervals,
+        enable_peak_regularity=args.enable_peak_regularity,
+        peak_regularity_cv=args.peak_regularity_cv,
     )
 
     supervisor.start()

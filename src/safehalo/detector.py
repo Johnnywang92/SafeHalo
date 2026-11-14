@@ -43,6 +43,8 @@ class RouterCSIDetector:
         object_confirm_seconds: float = 0.0,
         object_confirm_cv: float = DEFAULT_CV_THRESHOLD,
         object_confirm_min_intervals: int = MIN_INTERVALS,
+        enable_peak_regularity: bool = False,
+        peak_regularity_cv: float = DEFAULT_CV_THRESHOLD,
     ):
         self.calibration_seconds = calibration_seconds
         self.fall_spike_threshold = fall_spike_threshold
@@ -53,6 +55,8 @@ class RouterCSIDetector:
         self.on_request_burst_rate = on_request_burst_rate
         self.on_trigger_challenge = on_trigger_challenge
         self.on_challenge_intercepted = on_challenge_intercepted
+        self.enable_peak_regularity = enable_peak_regularity
+        self.peak_regularity_cv = peak_regularity_cv
 
         self.current_state = HumanState.CALIBRATING
         self.state_start_time = 0.0
@@ -80,6 +84,8 @@ class RouterCSIDetector:
             inspection_duration_seconds=fall_stillness_seconds,
             on_request_burst_rate=on_request_burst_rate,
             on_trigger_challenge=on_trigger_challenge,
+            enable_peak_regularity=enable_peak_regularity,
+            peak_regularity_cv=peak_regularity_cv,
         )
 
         # 第二阶段物品确认（默认关闭: object_confirm_seconds <= 0）

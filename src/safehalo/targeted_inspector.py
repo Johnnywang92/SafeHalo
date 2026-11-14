@@ -48,17 +48,26 @@ class TargetedFallInspector:
         on_inspection_progress: Optional[Callable[[TargetedInspectionState, str], None]] = None,
         on_request_burst_rate: Optional[Callable[[int], None]] = None,
         on_trigger_challenge: Optional[Callable[[str], None]] = None,
+        enable_peak_regularity: bool = False,
+        peak_regularity_cv: float = 0.35,
+        peak_regularity_min_range: float = 0.15,
     ):
         """
         :param inspection_duration_seconds: 定向深度检查窗口时长 (秒)
         :param on_inspection_progress: 复查进度通知回调
         :param on_request_burst_rate: 向探针/路由器请求提频发包的回调 (如提频到 100Hz)
         :param on_trigger_challenge: 进入本地声光/语音交互质询窗口时的回调 ("如您安全请动一下")
+        :param enable_peak_regularity: (P0-3) 是否启用呼吸峰间隔规整度与准周期性抗噪检验 (默认 False 保持位级兼容)
+        :param peak_regularity_cv: 呼吸峰间隔变异系数 (CV) 门限，<= 该门限确认为规律呼吸
+        :param peak_regularity_min_range: 呼吸波形最小动态范围 (峰峰值)，低于该值判定为平坦噪声地面
         """
         self.inspection_duration_seconds = inspection_duration_seconds
         self.on_inspection_progress = on_inspection_progress
         self.on_request_burst_rate = on_request_burst_rate
         self.on_trigger_challenge = on_trigger_challenge
+        self.enable_peak_regularity = enable_peak_regularity
+        self.peak_regularity_cv = peak_regularity_cv
+        self.peak_regularity_min_range = peak_regularity_min_range
 
         self.current_state = TargetedInspectionState.STANDBY
         self.start_time = 0.0
@@ -228,19 +237,64 @@ class TargetedFallInspector:
         min_peak_dist = 25
         peaks = 0
         last_peak_idx = -min_peak_dist
+        peak_indices = []
         for i in range(1, n - 1):
             if zero_mean[i] > zero_mean[i - 1] and zero_mean[i] > zero_mean[i + 1]:
                 if zero_mean[i] > 0.000015 and (i - last_peak_idx >= min_peak_dist):
                     peaks += 1
                     last_peak_idx = i
+                    peak_indices.append(i)
 
-        # 若观察窗口内检测到 1~6 个规则呼吸波峰 (对应每分钟 10~24 次正常/慢速呼吸)
-        if 1 <= peaks <= 6:
-            duration_s = max(2.0, self.inspection_duration_seconds - 1.0)
-            bpm = (peaks / duration_s) * 60.0
+        if not self.enable_peak_regularity:
+            # 若观察窗口内检测到 1~6 个规则呼吸波峰 (对应每分钟 10~24 次正常/慢速呼吸)
+            if 1 <= peaks <= 6:
+                duration_s = max(2.0, self.inspection_duration_seconds - 1.0)
+                bpm = (peaks / duration_s) * 60.0
+                return (True, min(26.0, max(12.0, bpm)))
+            return (False, 0.0)
+
+        # P0-3 规整度 / 准周期性强化抗噪模式:
+        if peaks < 1 or peaks > 6:
+            return (False, 0.0)
+
+        dyn_range = max(zero_mean) - min(zero_mean)
+        if dyn_range < self.peak_regularity_min_range:
+            # 地面微动峰峰值极低，属于静态平坦噪声，非人体呼吸
+            return (False, 0.0)
+
+        duration_s = max(2.0, self.inspection_duration_seconds - 1.0)
+        bpm = (peaks / duration_s) * 60.0
+
+        if peaks == 1:
+            # 单峰: 必须是生理性慢速呼吸波包 (波峰正瓣宽度应占样本至少 20%)
+            p = peak_indices[0]
+            left = p
+            while left > 0 and zero_mean[left] > 0.0:
+                left -= 1
+            right = p
+            while right < n - 1 and zero_mean[right] > 0.0:
+                right += 1
+            lobe_width = right - left
+            if lobe_width < max(20, int(0.20 * n)):
+                return (False, 0.0)
             return (True, min(26.0, max(12.0, bpm)))
 
-        return (False, 0.0)
+        intervals = [peak_indices[k] - peak_indices[k - 1] for k in range(1, len(peak_indices))]
+        if len(intervals) >= 2:
+            mean_i = sum(intervals) / len(intervals)
+            var_i = sum((x - mean_i) ** 2 for x in intervals) / len(intervals)
+            cv = math.sqrt(var_i) / mean_i if mean_i > 1e-9 else float("inf")
+            if cv > self.peak_regularity_cv:
+                # 峰间隔不规整，判定为随机射频噪声波动，非真实规律胸腔呼吸
+                return (False, 0.0)
+        else:
+            # 仅 1 个间隔 (2 个峰)，根据采样率检验间隔时长是否落在生理呼吸合理区间 [2.0s, 6.0s]
+            fs = n / duration_s if duration_s > 1e-6 else 25.0
+            interval_s = intervals[0] / fs
+            if interval_s < 2.0 or interval_s > 6.0:
+                return (False, 0.0)
+
+        return (True, min(26.0, max(12.0, bpm)))
 
     def _switch_state(self, new_state: TargetedInspectionState, desc: str):
         self.current_state = new_state

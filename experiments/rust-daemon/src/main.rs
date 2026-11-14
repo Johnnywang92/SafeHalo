@@ -65,6 +65,8 @@ struct Args {
     object_confirm_secs: f64,
     object_confirm_cv: f64,
     object_confirm_min_intervals: usize,
+    enable_peak_regularity: bool,
+    peak_regularity_cv: f64,
     room_name: String,
     challenge_enabled: Option<bool>,
     household_id: String,
@@ -148,6 +150,8 @@ fn parse_args() -> Args {
         object_confirm_secs: 0.0,
         object_confirm_cv: DEFAULT_CV_THRESHOLD,
         object_confirm_min_intervals: MIN_INTERVALS,
+        enable_peak_regularity: false,
+        peak_regularity_cv: DEFAULT_CV_THRESHOLD,
         room_name: String::new(),
         challenge_enabled: None,
         household_id: "H01".into(),
@@ -197,6 +201,8 @@ fn parse_args() -> Args {
             "--object-confirm-min-intervals" => {
                 a.object_confirm_min_intervals = need().parse().unwrap_or_else(|_| usage())
             }
+            "--enable-peak-regularity" => a.enable_peak_regularity = true,
+            "--peak-regularity-cv" => a.peak_regularity_cv = need().parse().unwrap_or_else(|_| usage()),
             "--room-name" => a.room_name = need(),
             "--challenge-enabled" => {
                 let v: i64 = need().parse().unwrap_or_else(|_| usage());
@@ -717,6 +723,8 @@ fn main() {
         args.object_confirm_secs,
         args.object_confirm_cv,
         args.object_confirm_min_intervals,
+        args.enable_peak_regularity,
+        args.peak_regularity_cv,
         calibrator,
     );
     let home_clean = dsp::clean_mac(&args.home_mac);

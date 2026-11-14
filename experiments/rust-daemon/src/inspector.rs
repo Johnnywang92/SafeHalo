@@ -66,6 +66,9 @@ pub struct Inspector {
     wave: Vec<f64>,
     ratios: Vec<f64>,
     pub events: Vec<InspEvent>,
+    pub enable_peak_regularity: bool,
+    pub peak_regularity_cv: f64,
+    pub peak_regularity_min_range: f64,
 }
 
 impl Inspector {
@@ -78,6 +81,9 @@ impl Inspector {
             wave: Vec::new(),
             ratios: Vec::new(),
             events: Vec::new(),
+            enable_peak_regularity: false,
+            peak_regularity_cv: 0.35,
+            peak_regularity_min_range: 0.15,
         }
     }
 
@@ -211,6 +217,7 @@ impl Inspector {
 
         let mut peaks = 0u32;
         let mut last_peak: i64 = -25;
+        let mut peak_indices: Vec<usize> = Vec::new();
         for i in 1..n - 1 {
             if zm[i] > zm[i - 1]
                 && zm[i] > zm[i + 1]
@@ -219,14 +226,185 @@ impl Inspector {
             {
                 peaks += 1;
                 last_peak = i as i64;
+                peak_indices.push(i);
             }
         }
-        if (1..=6).contains(&peaks) {
-            let dur = 2.0_f64.max(self.duration - 1.0);
-            let bpm = peaks as f64 / dur * 60.0;
-            (true, bpm.max(12.0).min(26.0))
-        } else {
-            (false, 0.0)
+
+        if !self.enable_peak_regularity {
+            if (1..=6).contains(&peaks) {
+                let dur = 2.0_f64.max(self.duration - 1.0);
+                let bpm = peaks as f64 / dur * 60.0;
+                return (true, bpm.max(12.0).min(26.0));
+            } else {
+                return (false, 0.0);
+            }
         }
+
+        // P0-3: 呼吸峰规整度与准周期性抗噪检验
+        if peaks < 1 || peaks > 6 {
+            return (false, 0.0);
+        }
+
+        let max_zm = zm.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min_zm = zm.iter().cloned().fold(f64::INFINITY, f64::min);
+        let dyn_range = max_zm - min_zm;
+        if dyn_range < self.peak_regularity_min_range {
+            return (false, 0.0);
+        }
+
+        let dur = 2.0_f64.max(self.duration - 1.0);
+        let bpm = peaks as f64 / dur * 60.0;
+
+        if peaks == 1 {
+            let p = peak_indices[0];
+            let mut left = p;
+            while left > 0 && zm[left] > 0.0 {
+                left -= 1;
+            }
+            let mut right = p;
+            while right < n - 1 && zm[right] > 0.0 {
+                right += 1;
+            }
+            let lobe_width = right - left;
+            let min_width = 20.max((0.20 * n as f64) as usize);
+            if lobe_width < min_width {
+                return (false, 0.0);
+            }
+            return (true, bpm.max(12.0).min(26.0));
+        }
+
+        let intervals: Vec<f64> = peak_indices
+            .windows(2)
+            .map(|w| (w[1] - w[0]) as f64)
+            .collect();
+
+        if intervals.len() >= 2 {
+            let mean = intervals.iter().sum::<f64>() / intervals.len() as f64;
+            let var = intervals.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / intervals.len() as f64;
+            let cv = var.sqrt() / mean;
+            if cv > self.peak_regularity_cv {
+                return (false, 0.0);
+            }
+        } else if intervals.len() == 1 {
+            let fs = n as f64 / dur;
+            let interval_s = intervals[0] / fs;
+            if interval_s < 2.0 || interval_s > 6.0 {
+                return (false, 0.0);
+            }
+        }
+
+        (true, bpm.max(12.0).min(26.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_legacy_vulnerability_on_noisy_object() {
+        let mut insp = Inspector::new(5.0);
+        insp.enable_peak_regularity = false;
+        insp.trigger(0.0);
+
+        // Simulate 150 frames of noisy still floor with small ripples
+        for i in 0..150 {
+            let t = (i + 1) as f64 * (5.0 / 150.0);
+            let ripple = if i % 30 == 15 { 0.05 } else { 0.0 };
+            let amps = vec![30.0 + ripple; 52];
+            let v = insp.update_frame(t, 1.05, 1.0, &amps);
+            if i == 149 {
+                assert!(v.is_some());
+                let verdict = v.unwrap();
+                // In legacy mode, random ripples trigger false alarm VERDICT_FALL
+                assert_eq!(verdict.state, InspState::VerdictFall);
+            }
+        }
+    }
+
+    #[test]
+    fn test_peak_regularity_fixes_noisy_object() {
+        let mut insp = Inspector::new(5.0);
+        insp.enable_peak_regularity = true;
+        insp.peak_regularity_cv = 0.35;
+        insp.trigger(0.0);
+
+        for i in 0..150 {
+            let t = (i + 1) as f64 * (5.0 / 150.0);
+            let ripple = if i % 30 == 15 { 0.05 } else { 0.0 };
+            let amps = vec![30.0 + ripple; 52];
+            let v = insp.update_frame(t, 1.05, 1.0, &amps);
+            if i == 149 {
+                assert!(v.is_some());
+                let verdict = v.unwrap();
+                // With peak regularity enabled, low dynamic range noise ripples are rejected
+                assert_eq!(verdict.state, InspState::VerdictObject);
+                assert!(verdict.is_inanimate_object);
+            }
+        }
+    }
+
+    #[test]
+    fn test_real_human_breathing_passes_regularity() {
+        let mut insp = Inspector::new(5.0);
+        insp.enable_peak_regularity = true;
+        insp.peak_regularity_cv = 0.35;
+        insp.trigger(0.0);
+
+        for i in 0..150 {
+            let t = (i + 1) as f64 * (5.0 / 150.0);
+            // 16 bpm = 0.267 Hz
+            let breath = 0.8 * (2.0 * std::f64::consts::PI * (16.0 / 60.0) * t).sin();
+            let amps = vec![30.0 + breath; 52];
+            let v = insp.update_frame(t, 1.1, 1.0, &amps);
+            if i == 149 {
+                assert!(v.is_some());
+                let verdict = v.unwrap();
+                assert_eq!(verdict.state, InspState::VerdictFall);
+                assert!(verdict.has_respiration);
+                assert!(verdict.respiration_bpm >= 12.0 && verdict.respiration_bpm <= 26.0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_single_noise_ripple_rejected() {
+        let mut insp = Inspector::new(5.0);
+        insp.enable_peak_regularity = true;
+
+        let mut wave = vec![30.0; 100];
+        // Subtle single hump with tiny amplitude
+        for i in 0..100 {
+            let diff = (i as f64 - 50.0).powi(2) / 30.0;
+            wave[i] += 0.08 * (-diff).exp();
+        }
+        insp.wave = wave;
+        let (has_resp, _) = insp.evaluate_respiration();
+        assert!(!has_resp);
+
+        // In legacy mode (false), it mistakenly accepts it:
+        insp.enable_peak_regularity = false;
+        let (has_resp_legacy, _) = insp.evaluate_respiration();
+        assert!(has_resp_legacy);
+    }
+
+    #[test]
+    fn test_irregular_peaks_rejected() {
+        let mut insp = Inspector::new(6.0);
+        insp.enable_peak_regularity = true;
+        insp.peak_regularity_cv = 0.35;
+
+        let mut wave = vec![30.0; 150];
+        for &p in &[20usize, 50, 140] {
+            for di in -4..=4 {
+                let idx = p as i32 + di;
+                if idx >= 0 && idx < 150 {
+                    wave[idx as usize] += 0.8 * (1.0 - (di.abs() as f64 / 5.0));
+                }
+            }
+        }
+        insp.wave = wave;
+        let (has_resp, _) = insp.evaluate_respiration();
+        assert!(!has_resp);
     }
 }
