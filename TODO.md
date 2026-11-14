@@ -183,6 +183,7 @@
   - 增强 `experiments/rust-daemon/deploy/install.sh`：
     * **架构与 ELF 端序智能探测**：优先读取 `/etc/openwrt_release` 的 `DISTRIB_ARCH`，针对内核报 `mips` 但硬件为 `mipsel`（如 MTK MT7628）的场景读取系统自身二进制 ELF 字节序（第 6 字节）精准区分大小端。
     * **预检保护**：增加目标分区至少 3MB 可用磁盘空间检测与 HTTPS 工具链（curl/uclient-fetch/wget）探测提示。
+    * **顶层极简一键安装与启动助手**：创建根目录 [install.sh](file:///Users/yifanwang/workspace/SafeHalo/install.sh)，整合 OpenWrt 自动架构适配、Linux systemd / macOS launchd 开机自启、`./install.sh --remote <IP>` 远程 SSH 自动推流部署与浏览器自动唤醒，让安装彻底实现傻瓜化。
     * **配置自动备份**：已存在配置自动重命名备份至 `safehalo.bak.<timestamp>`。
     * **二进制执行兼容性测试**：安装后先进行 `--help` 试运行测试，杜绝错架构二进制导致 procd 崩溃死循环。
     * **运维命令指引**：补充 `logread`、`status`、`ha/status` 等调试输出。

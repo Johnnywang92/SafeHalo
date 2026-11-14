@@ -113,6 +113,12 @@ sh verify/run_service.sh
 
 ### 5. 部署
 
+> **极简捷径**: 仓库根目录提供了全能一键安装脚本 `install.sh`：
+> - 本地极速体验：`./install.sh --quick`
+> - OpenWrt 远程部署：`./install.sh --remote "$ROUTER_IP"`
+> 
+> 若需定制参数分步部署，可按以下详细命令执行：
+
 #### 5.1 TARGET=local-python
 
 前台启动命令（不要自动长期占用终端；可用后台方式并记录 PID）：

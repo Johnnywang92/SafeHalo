@@ -17,6 +17,39 @@ SafeHalo 是一个基于低功耗物联网传感与信号分析的跌倒检测�
 
 ---
 
+## ⚡ 极简傻瓜式一键安装与启动 (Quick Start)
+
+不论是电脑本地极速体验、树莓派开机常驻，还是在 OpenWrt 路由器上部署，无需记忆复杂参数，终端**一条命令搞定**：
+
+### 方案 1：本地极速体验 / 交互式向导 (Mac / Linux / 树莓派)
+```bash
+./install.sh
+```
+> **自动处理**：自动探测系统环境与硬件串口；若未插硬件则自动启动仿真演示模式，并**自动在默认浏览器中弹开 Web 控制台** (`http://127.0.0.1:8091`)。
+
+### 方案 2：远程一键推送到 OpenWrt 路由器 (强烈推荐，免路由器折腾)
+在你的电脑或笔记本终端执行：
+```bash
+./install.sh --remote 192.168.1.1
+```
+> **自动处理**：自动通过 SSH 识别路由器 CPU 架构 (mipsel/mips/aarch64/x86_64)，推送预编译超轻量静态二进制 (<1MB，零依赖)，配置开机自启并启动，直接在手机或电脑浏览器访问 `http://192.168.1.1:8091` 即可使用。
+
+### 方案 3：直接在 OpenWrt 路由器终端运行
+```bash
+curl -fsSL https://raw.githubusercontent.com/Johnnywang92/SafeHalo/main/install.sh | sh
+```
+
+### 方案 4：硬件到手第一步？一键体检与烧录
+```bash
+# 硬件探针链路全项体检（测串口、52子载波、RSSI质量、双向提频作动）
+python3 scripts/hardware_probe_doctor.py
+
+# ESP32-S3 芯片识别、全盘擦除与一键烧录助手
+./firmware/flash_firmware.sh
+```
+
+---
+
 ## 文档导航
 
 - 工坊主页与系列作品：[JohnnyBoyStudio (https://johnnyboystudio.com/)](https://johnnyboystudio.com/)
