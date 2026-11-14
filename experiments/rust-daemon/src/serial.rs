@@ -154,5 +154,43 @@ pub fn is_command_allowed(cmd: &str) -> bool {
         let arg = &trimmed[15..];
         return matches!(arg, "0" | "1");
     }
-    matches!(trimmed, "PING" | "REBOOT" | "STATUS")
+    if trimmed.starts_with("CHALLENGE_VOICE:") || trimmed.starts_with("PLAY_TTS:") {
+        return true;
+    }
+    matches!(trimmed, "PING" | "REBOOT" | "STATUS" | "ALARM_SIREN")
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test_device_registry_operations() {
+        let mut reg = DeviceRegistry::new();
+        let dev = DeviceInfo {
+            id: "door_front".into(),
+            device_type: "door".into(),
+            role: DeviceRole::Sensor,
+            path: "network".into(),
+            baud: 0,
+            status: "closed".into(),
+            last_seen: 100.0,
+        };
+        reg.register(dev);
+        assert_eq!(reg.devices.len(), 1);
+        let json = reg.to_json();
+        assert!(json.contains("door_front"));
+        assert!(json.contains("closed"));
+    }
+
+    #[test]
+    pub fn test_command_whitelist_expanded() {
+        assert!(is_command_allowed("BURST_RATE:50"));
+        assert!(is_command_allowed("CHALLENGE_BEEP:1"));
+        assert!(is_command_allowed("CHALLENGE_VOICE:请问您摔倒了吗？"));
+        assert!(is_command_allowed("PLAY_TTS:紧急告警"));
+        assert!(is_command_allowed("ALARM_SIREN"));
+        assert!(!is_command_allowed("rm -rf /"));
+        assert!(!is_command_allowed("BURST_RATE:999"));
+    }
 }

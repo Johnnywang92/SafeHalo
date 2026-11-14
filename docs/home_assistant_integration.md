@@ -203,6 +203,79 @@ action:
       brightness: 20
 ```
 
+### 5.3 多传感器生态双向联动 (门磁 / PIR / 智能音箱 / SOS 按键接入 SafeHalo)
+
+SafeHalo 提供了专用的多传感器生态融合接口 `POST /api/sensors/event` 与 `GET /api/sensors/status`（Python 服务与 Rust Daemon 双引擎原生对齐），支持将家庭既有的各类智能家居传感器事件接入 SafeHalo 空间决策中枢：
+
+#### 场景 1: 门磁传感器联动 (入户大门防盗 / 深夜防走失 / 卫生间防滞留)
+在 Home Assistant 中配置自动化，当门磁开合时同步通知 SafeHalo：
+```yaml
+# 自动化: 门磁状态同步至 SafeHalo
+alias: "SafeHalo - 同步门磁状态"
+trigger:
+  - platform: state
+    entity_id: binary_sensor.front_door
+    to: ["on", "off"]
+action:
+  - service: rest_command.safehalo_sensor_event
+    data:
+      device_id: "door_front"
+      event: "{{ 'open' if trigger.to_state.state == 'on' else 'closed' }}"
+      room: "入户玄关"
+```
+
+#### 场景 2: 人体红外 (PIR) 联动动态 CSI 采频
+当 PIR 监测到空间有人走动时，向 SafeHalo 触发提频激励（将 CSI 探针自动调频至 50Hz/100Hz）：
+```yaml
+alias: "SafeHalo - PIR 动能激励 CSI 提频采样"
+trigger:
+  - platform: state
+    entity_id: binary_sensor.living_room_pir
+    to: "on"
+action:
+  - service: rest_command.safehalo_sensor_event
+    data:
+      device_id: "pir_living"
+      event: "motion_detected"
+      room: "客厅"
+```
+
+#### 场景 3: 智能音箱语音质询与声控消警/呼救闭环
+当 SafeHalo 检测到疑似跌倒 (`FALL_SUSPECT`) 时，可自动驱动智能音箱播报语音质询；老人回答“没事”或按键时，HA 触发消警：
+```yaml
+# 自动化: 老人语音或按键消警
+alias: "SafeHalo - 智能音箱语音化解跌倒嫌疑"
+trigger:
+  - platform: event
+    event_type: xiaomi_aqara.click
+    event_data:
+      click_type: single
+action:
+  - service: rest_command.safehalo_sensor_event
+    data:
+      device_id: "speaker_living"
+      event: "voice_dismiss"
+      room: "客厅"
+```
+
+#### 基础 rest_command 配置
+在 Home Assistant 的 `configuration.yaml` 中添加以下通用服务：
+```yaml
+rest_command:
+  safehalo_sensor_event:
+    # 端口: Python 8080, Rust 8091
+    url: "http://192.168.1.1:8091/api/sensors/event"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    payload: >-
+      {
+        "device_id": "{{ device_id }}",
+        "event": "{{ event }}",
+        "room": "{{ room | default('客厅') }}"
+      }
+```
+
 ---
 
 ## 6. Lovelace 仪表盘卡片配置示例

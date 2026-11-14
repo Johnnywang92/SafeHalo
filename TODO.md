@@ -30,6 +30,7 @@
 - 守护进程长稳压测与资源防泄漏（P2-5）：发布 `scripts/soak_test.py` 与实测报告（`docs/soak_test_report.md`），实测 1,600+ packets/s 超频吞吐下，RSS 常驻仅 2.67 MB，零内存泄漏，句柄无漂移，Flash 落盘低至 20.1 KB/h。
 - 故障注入与混沌演练套件（P2-5 扩展，双引擎）：发布 `scripts/chaos_simulator.py` 与演练报告（`docs/chaos_test_report.md`），8 项演练全量通过（35% 帧数据毒化防崩溃、40% 高丢包抖动自适应、硬件热拔插自愈、断网通知持久化队列）。
 - 远程 OTA 与守护进程无感原子热升级工具链（P3-4）：发布 `scripts/ota_updater.py` 与操作指南（`docs/ota_update_guide.md`），支持 ELF 架构与字节序精准校验、SHA-256 完整性约束、POSIX 原子替换规避 ETXTBSY、12 秒存活看门狗失败自动回滚、manifest.json 自动生成及 ESP32 探针固件下行升级指令打包。
+- 多传感器生态抽象与融合联动接口（P3-5，双引擎）：开发 `src/safehalo/sensor_fusion_ecosystem.py` 与 Rust 原生对应端点（`/api/sensors/status`、`/api/sensors/event`、`/api/sensors/register`）；打通门磁防盗/防走失/防滞留、PIR 动能联动提频、智能音箱语音质询消警/呼救闭环及 SOS 紧急按钮。
 - 四架构 musl 静态交叉编译；`verify/run_service.sh` 53 项服务回归通过；Python `tests/test_web_security.py` 9 项安全用例通过。
 - README 详细部署流程与 Agent 一键安装提示词。
 
@@ -343,10 +344,19 @@
 - **待硬件到手**：外壳、供电、物理安装支架与产线自动化刷机治具。
 - **依赖**：P0-1、P2-7。
 
-### P3-5 多传感器生态扩展
+### P3-5 多传感器生态扩展与跨模态融合联动 [已完成]
 
-- 门磁、PIR、智能音箱、毫米波雷达、可穿戴设备的统一接入与融合。
-- 依赖：P1-9、P1-7。
+- **完成情况**：
+  - 设计并落地多传感器抽象中心 [src/safehalo/sensor_fusion_ecosystem.py](file:///Users/yifanwang/workspace/SafeHalo/src/safehalo/sensor_fusion_ecosystem.py) 与双引擎 HTTP/Webhook 契约对齐：
+    * **标准化设备模型 (`SensorDevice`)**：统一接入门磁 (`door`)、红外 (`pir`)、智能音箱 (`speaker`)、紧急按键 (`sos_button`) 与雷达 (`mmwave_radar`)；
+    * **跌倒语音质询与声控消警/呼救闭环**：CSI 初筛跌倒 -> 联动智能音箱下发语音质询；老人回答“没事”/按键 -> 毫秒级解除虚警；老人呼救“救命/摔倒了” -> 秒级确诊跌倒升级告警；
+    * **卫生间高危困顿超时守护**：门关闭后进入倒计时监控，超时（默认 20 分钟）未开门且室内静止，自动触发困顿滞留紧急预警；
+    * **安防周界与立体入侵认证**：离家布防模式下大门开启报外围突破（`PERIMETER_BREACH`），若伴随 PIR/CSI 动能则升级为确认入侵；深夜防走失模式下外门推开即时告警；
+    * **动态 CSI 采频激励**：PIR 感知微动后联动探针提频采样（50Hz）；
+    * **Home Assistant 与 Webhook 接入指南**：升级 [docs/home_assistant_integration.md](file:///Users/yifanwang/workspace/SafeHalo/docs/home_assistant_integration.md)，提供 `POST /api/sensors/event` 与自动化配置模板；
+    * **自动化测试套件**：新增 [tests/test_sensor_ecosystem.py](file:///Users/yifanwang/workspace/SafeHalo/tests/test_sensor_ecosystem.py)（11 项测试全量通过）并同步更新 Web 前端契约测试。
+- **完成标准**：统一接口协议、多传感器跨模态联动规则闭环、双引擎契约等价、测试覆盖。
+- **依赖**：P1-9、P1-7。
 
 ---
 

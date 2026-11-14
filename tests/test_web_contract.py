@@ -178,6 +178,7 @@ class TestWebContract(unittest.TestCase):
             "/api/incidents",
             "/api/devices",
             "/api/health",
+            "/api/sensors/status",
         ]
         for ep in exempt_endpoints:
             # 校验在 Python 与 Rust 的免登放行集合中
@@ -186,7 +187,7 @@ class TestWebContract(unittest.TestCase):
 
     def test_devices_command_whitelist_contract(self):
         """9. 校验设备指令白名单在 Python 与 Rust 中一致包含核心作动指令"""
-        for cmd in ["BURST_RATE", "CHALLENGE_BEEP", "PING", "REBOOT"]:
+        for cmd in ["BURST_RATE", "CHALLENGE_BEEP", "CHALLENGE_VOICE", "PING", "REBOOT"]:
             self.assertIn(cmd, self.python_code, f"Python 缺少白名单指令: {cmd}")
             self.assertIn(cmd, self.rust_code, f"Rust 缺少白名单指令: {cmd}")
 

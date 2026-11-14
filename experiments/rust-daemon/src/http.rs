@@ -252,10 +252,10 @@ fn must_change_exempt(method: &str, path: &str) -> bool {
             "/" | "/index.html" | "/api/auth/current" | "/api/ha/status" | "/api/routine"
                 | "/api/neighbor_spectrum" | "/api/placement" | "/api/multilink"
                 | "/api/phase2/pilot" | "/api/phase2/pilot/report" | "/api/incidents"
-                | "/api/devices" | "/api/health"
+                | "/api/devices" | "/api/health" | "/api/sensors/status"
         )
     } else {
-        matches!(path, "/api/auth/login" | "/api/auth/logout" | "/api/challenge/acknowledge")
+        matches!(path, "/api/auth/login" | "/api/auth/logout" | "/api/challenge/acknowledge" | "/api/sensors/event")
     }
 }
 
@@ -498,6 +498,20 @@ fn handle_get(
         "/api/devices" => {
             let s = bus.lock();
             send_json(st, 200, &s.devices.to_json());
+        }
+        "/api/sensors/status" => {
+            let s = bus.lock();
+            let items: Vec<String> = s.devices.devices.iter().map(|d| d.to_json()).collect();
+            send_json(
+                st,
+                200,
+                &format!(
+                    "{{\"total_devices\":{},\"security_mode\":\"{}\",\"devices\":[{}]}}",
+                    s.devices.devices.len(),
+                    json::escape(&s.security_mode),
+                    items.join(",")
+                ),
+            );
         }
         "/api/health" => {
             let s = bus.lock();
@@ -1040,6 +1054,134 @@ fn handle_post(
             }
             Some(_) => send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"权限不足，仅管理员可向硬件设备下发指令\"}"),
             None => send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"未登录或登录已过期，请重新登录\"}"),
+        },
+        "/api/sensors/event" => {
+            let device_id = jstr(&data, "device_id");
+            let event = {
+                let e = jstr(&data, "event");
+                if e.is_empty() { jstr(&data, "state") } else { e }
+            };
+            if device_id.is_empty() || event.is_empty() {
+                send_json(st, 400, "{\"success\":false,\"message\":\"Missing device_id or event\"}");
+                return;
+            }
+            let room = {
+                let r = jstr(&data, "room");
+                if r.is_empty() { "客厅".into() } else { r }
+            };
+
+            let now = timefmt::now_epoch() as f64;
+            let mut action = "none";
+            let mut message = "事件已接收并记录".to_string();
+
+            {
+                let mut s = bus.lock();
+                // 1. 查找或更新设备
+                let dev = crate::serial::DeviceInfo {
+                    id: device_id.clone(),
+                    device_type: if device_id.contains("door") { "door".into() }
+                        else if device_id.contains("pir") { "pir".into() }
+                        else if device_id.contains("speaker") { "speaker".into() }
+                        else if device_id.contains("sos") { "sos_button".into() }
+                        else { "sensor".into() },
+                    role: crate::serial::DeviceRole::Sensor,
+                    path: "network".into(),
+                    baud: 0,
+                    status: event.clone(),
+                    last_seen: now,
+                };
+                s.devices.register(dev);
+
+                // 2. 联动逻辑判定
+                let ev_lower = event.to_ascii_lowercase();
+                if ev_lower == "voice_dismiss" || ev_lower == "dismiss" {
+                    if s.state == "FALL_SUSPECT" {
+                        s.state = "RESTING".into();
+                        action = "challenge_dismissed";
+                        message = "老人语音应答正常，跌倒嫌疑已成功化解".into();
+                        s.events.push("CHALLENGE_DISMISSED", "INFO", &format!("[{}] {}", device_id, message), "{}");
+                    }
+                } else if ev_lower == "voice_help" || ev_lower == "help" {
+                    s.state = "FALL_CONFIRMED".into();
+                    s.fall_alarms += 1;
+                    action = "fall_escalated";
+                    message = "老人语音呼救（喊救命），秒级升级确诊跌倒！".into();
+                    s.events.push("FALL_ESCALATED", "ALARM", &format!("[{}] {}", device_id, message), "{}");
+                } else if ev_lower == "sos_pressed" || ev_lower == "sos" {
+                    s.state = "FALL_CONFIRMED".into();
+                    s.fall_alarms += 1;
+                    action = "sos_emergency_alert";
+                    message = format!("老人按下紧急 SOS 求救按钮！位置: {}", room);
+                    s.events.push("SOS_EMERGENCY", "ALARM", &format!("[{}] {}", device_id, message), "{}");
+                } else if ev_lower.contains("open") {
+                    if s.security_mode == "ARMED_AWAY" {
+                        action = "perimeter_breach_alert";
+                        message = format!("离家布防模式下门磁触发！外围防线突破: {}", device_id);
+                        s.events.push("SECURITY_INTRUSION", "ALARM", &message, "{}");
+                    } else if s.security_mode == "CURFEW" {
+                        action = "curfew_wandering_alert";
+                        message = format!("老人防走失模式告警：深夜外门推开: {}", device_id);
+                        s.events.push("CURFEW_WANDERING", "ALARM", &message, "{}");
+                    }
+                } else if ev_lower.contains("motion") {
+                    if s.security_mode == "ARMED_AWAY" {
+                        action = "confirmed_intrusion_alert";
+                        message = format!("离家布防模式下 PIR 人体红外触发！确认入侵: {}", room);
+                        s.events.push("SECURITY_INTRUSION", "ALARM", &message, "{}");
+                    } else {
+                        action = "burst_rate_triggered";
+                        message = "PIR 动能联动触发 CSI 探针提频采样".into();
+                        s.events.push("BURST_RATE_TRIGGER", "INFO", &format!("[{}] {}", device_id, message), "{}");
+                    }
+                }
+            }
+            bus.cv.notify_all();
+
+            send_json(
+                st,
+                200,
+                &format!(
+                    "{{\"success\":true,\"action\":\"{}\",\"message\":\"{}\",\"device_id\":\"{}\"}}",
+                    action,
+                    json::escape(&message),
+                    json::escape(&device_id)
+                ),
+            );
+        }
+        "/api/sensors/register" => match auth_ctx(req, q, auth, &cfg.token) {
+            Some(c) if c.role() == "admin" => {
+                let dev_id = jstr(&data, "device_id");
+                let stype = jstr(&data, "sensor_type");
+                let path = jstr(&data, "path");
+                if dev_id.is_empty() {
+                    send_json(st, 400, "{\"success\":false,\"message\":\"Missing device_id\"}");
+                    return;
+                }
+                let now = timefmt::now_epoch() as f64;
+                {
+                    let mut s = bus.lock();
+                    let dev = crate::serial::DeviceInfo {
+                        id: dev_id.clone(),
+                        device_type: if stype.is_empty() { "sensor".into() } else { stype },
+                        role: crate::serial::DeviceRole::Sensor,
+                        path: if path.is_empty() { "network".into() } else { path },
+                        baud: 0,
+                        status: "online".into(),
+                        last_seen: now,
+                    };
+                    s.devices.register(dev);
+                    s.events.push(
+                        "SENSOR_REGISTERED",
+                        "INFO",
+                        &format!("管理员 [{}] 注册新传感器设备: {}", c.username(), dev_id),
+                        "{}",
+                    );
+                }
+                bus.cv.notify_all();
+                send_json(st, 200, &format!("{{\"success\":true,\"device_id\":\"{}\"}}", json::escape(&dev_id)));
+            }
+            Some(_) => send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"仅管理员可注册新传感器\"}"),
+            None => send_json(st, 401, "{\"error\":\"Unauthorized\"}"),
         },
         "/api/auth/logout" => {
             if let Some(t) = cookie_token(req) {

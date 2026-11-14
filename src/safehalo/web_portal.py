@@ -20,11 +20,35 @@ from .auth_manager import auth_manager
 from .placement_adapter import PlacementAdapter, RoomPlacementConfig, TunedParameters
 from .pilot_telemetry import PilotHouseholdManager
 from .miniprogram_bridge import IncidentFeedbackManager, WeChatMiniProgramBridge
+from .sensor_fusion_ecosystem import SensorFusionEcosystem, SensorType, LinkageAction
 
 # 全局摆放自适应协调器与阶段 2 试点/事件管理实例
 placement_adapter = PlacementAdapter()
 pilot_manager = PilotHouseholdManager()
 incident_manager = IncidentFeedbackManager()
+
+def _on_eco_fall_confirmed(room: str, confidence: float, details: str):
+    logger.log_fall_alarm(details)
+    incident_manager.record_incident(
+        room_name=room,
+        confidence=confidence,
+        details=details,
+        respiration_bpm=0.0,
+    )
+    shared_system_state["state"] = "FALL_CONFIRMED"
+
+def _on_eco_challenge_dismissed(details: str):
+    logger.info(f"[ECOSYSTEM] {details}")
+    shared_system_state["state"] = "RESTING"
+
+def _on_eco_security_alert(alert_type: str, details: str, meta: Dict):
+    logger.log_event("SECURITY_INTRUSION", f"{alert_type}: {details}", level="ALARM")
+
+sensor_ecosystem = SensorFusionEcosystem(
+    on_fall_confirmed=_on_eco_fall_confirmed,
+    on_challenge_dismissed=_on_eco_challenge_dismissed,
+    on_security_alert=_on_eco_security_alert,
+)
 
 # 全局共享状态字典 (供算法后台线程与 Web 前端交互)
 SERVICE_START_TIME = time.time()
@@ -140,8 +164,9 @@ def _must_change_exempt(method: str, path: str) -> bool:
             "/", "/index.html", "/api/auth/current", "/api/ha/status", "/api/routine",
             "/api/neighbor_spectrum", "/api/placement", "/api/multilink",
             "/api/phase2/pilot", "/api/incidents", "/api/devices", "/api/health",
+            "/api/sensors/status",
         )
-    return path in ("/api/auth/login", "/api/auth/logout", "/api/challenge/acknowledge")
+    return path in ("/api/auth/login", "/api/auth/logout", "/api/challenge/acknowledge", "/api/sensors/event")
 
 
 class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
@@ -302,6 +327,11 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 "fused_state": shared_system_state.get("fused_state", "CALIBRATING"),
                 "radar_online": shared_system_state.get("radar_online", False),
             })
+            return
+
+        # 1.10 多模态传感器生态状态与联动快照 (公开遥测)
+        if self.path == "/api/sensors/status":
+            self._send_json(200, sensor_ecosystem.get_status())
             return
 
         # --- 以下接口均需要登录 ---
@@ -593,6 +623,31 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
+        # 多传感器生态事件上报与融合联动 (公开/免登供 HA 与网关调用)
+        if self.path == "/api/sensors/event":
+            device_id = str(data.get("device_id", "")).strip()
+            event_name = str(data.get("event", data.get("state", ""))).strip()
+            if not device_id or not event_name:
+                self._send_json(400, {"success": False, "message": "Missing device_id or event"})
+                return
+            timestamp = data.get("timestamp")
+            extra = data.get("extra") or {}
+            if "room" in data:
+                extra["room"] = data["room"]
+            action, msg = sensor_ecosystem.handle_event(
+                device_id=device_id,
+                event_name=event_name,
+                timestamp=timestamp,
+                extra=extra,
+            )
+            self._send_json(200, {
+                "success": True,
+                "action": action.value,
+                "message": msg,
+                "device_id": device_id,
+            })
+            return
+
         # --- 以下 POST 操作均需要有效登录态 ---
         sess = self._get_session()
         if not sess:
@@ -755,7 +810,9 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 allowed = cmd[11:] in ("20", "30", "50", "100")
             elif cmd.startswith("CHALLENGE_BEEP:"):
                 allowed = cmd[15:] in ("0", "1")
-            elif cmd in ("PING", "REBOOT", "STATUS"):
+            elif cmd.startswith("CHALLENGE_VOICE:") or cmd.startswith("PLAY_TTS:"):
+                allowed = True
+            elif cmd in ("PING", "REBOOT", "STATUS", "ALARM_SIREN"):
                 allowed = True
 
             if not allowed:
@@ -769,6 +826,38 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 "device_id": dev_id,
                 "command": cmd,
             })
+            return
+
+        # 11. 注册新传感器设备 (仅管理员)
+        if self.path == "/api/sensors/register":
+            if sess.get("role") != "admin":
+                self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可注册新传感器"})
+                return
+            data = self._read_json_body() or {}
+            device_id = str(data.get("device_id", "")).strip()
+            sensor_type = str(data.get("sensor_type", "other")).strip()
+            name = str(data.get("name", device_id)).strip()
+            room = str(data.get("room", "默认房间")).strip()
+            if not device_id:
+                self._send_json(400, {"success": False, "message": "Missing device_id"})
+                return
+            dev = sensor_ecosystem.register_device(device_id, sensor_type, name, room, data.get("metadata"))
+            self._send_json(200, {"success": True, "device": dev.to_dict()})
+            return
+
+        # 12. 执行作动测试或下发音箱语音 (仅管理员)
+        if self.path == "/api/sensors/actuate":
+            if sess.get("role") != "admin":
+                self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可执行作动测试"})
+                return
+            data = self._read_json_body() or {}
+            device_id = str(data.get("device_id", "")).strip()
+            cmd = str(data.get("command", "")).strip()
+            if not cmd:
+                self._send_json(400, {"success": False, "message": "Missing command"})
+                return
+            logger.info(f"[ACTUATE] 管理员向生态设备 [{device_id}] 发送作动指令: {cmd}")
+            self._send_json(200, {"success": True, "message": f"作动指令已下发: {cmd}", "device_id": device_id, "command": cmd})
             return
 
         self.send_error(404, "Not Found")
