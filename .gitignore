@@ -13,3 +13,4 @@ data/*.json
 extracted_sample.html
 experiments/rust-daemon/fixtures/generated/
 experiments/rust-daemon/target/
+daemon-storage/
