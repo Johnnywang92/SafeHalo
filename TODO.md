@@ -28,6 +28,8 @@
 - 试点现场标准作业规范（P2-8）：发布 `docs/pilot_sop.md`，提供现场安装、0.5~1.2m 物理定位、Wi-Fi 20MHz 锁频、5 秒静默标定与故障排障流程。
 - 隐私合规与数据脱敏工具链（P3-3）：发布 `scripts/sanitize_logs.py` 与测试套件，支持 MAC 假名化、Token/密码/手机号掩码与 `--check` 合规门禁。
 - 守护进程长稳压测与资源防泄漏（P2-5）：发布 `scripts/soak_test.py` 与实测报告（`docs/soak_test_report.md`），实测 1,600+ packets/s 超频吞吐下，RSS 常驻仅 2.67 MB，零内存泄漏，句柄无漂移，Flash 落盘低至 20.1 KB/h。
+- 故障注入与混沌演练套件（P2-5 扩展，双引擎）：发布 `scripts/chaos_simulator.py` 与演练报告（`docs/chaos_test_report.md`），8 项演练全量通过（35% 帧数据毒化防崩溃、40% 高丢包抖动自适应、硬件热拔插自愈、断网通知持久化队列）。
+- 远程 OTA 与守护进程无感原子热升级工具链（P3-4）：发布 `scripts/ota_updater.py` 与操作指南（`docs/ota_update_guide.md`），支持 ELF 架构与字节序精准校验、SHA-256 完整性约束、POSIX 原子替换规避 ETXTBSY、12 秒存活看门狗失败自动回滚、manifest.json 自动生成及 ESP32 探针固件下行升级指令打包。
 - 四架构 musl 静态交叉编译；`verify/run_service.sh` 53 项服务回归通过；Python `tests/test_web_security.py` 9 项安全用例通过。
 - README 详细部署流程与 Agent 一键安装提示词。
 
@@ -327,10 +329,19 @@
 - **完成标准**：自动检测录制数据中的可识别家庭信息，生成脱敏副本与审计记录。
 - **依赖**：P0-6。
 
-### P3-4 产品化硬件与 OTA
+### P3-4 产品化硬件与远程 OTA 热升级套件 [已完成核心工具链]
 
-- 外壳、供电、安装支架、OTA 升级、量产测试。
-- 依赖：P0-1、P2-7。
+- **完成情况**：
+  - 发布远程 OTA 与守护进程无感原子热升级工具 [scripts/ota_updater.py](file:///Users/yifanwang/workspace/SafeHalo/scripts/ota_updater.py) 与操作指南 [docs/ota_update_guide.md](file:///Users/yifanwang/workspace/SafeHalo/docs/ota_update_guide.md)：
+    * **ELF 架构与端序强校验**：自动解析 ELF/Mach-O Header（`mipsel`, `mips`, `aarch64`, `x86_64`, `darwin`），杜绝因架构或大小端错配导致 OpenWrt `procd` 陷入致命崩溃循环；
+    * **密码学完整性与大小下限**：强制 SHA-256 校验与文件体积下限约束（$\ge 100\text{ KB}$），杜绝网络传输截断损坏；
+    * **POSIX 原子热替换**：采用同目录暂存与 `os.replace` 原子替换，彻底规避 Linux 下覆盖在跑二进制报 `ETXTBSY: Text file busy` 错误；
+    * **看门狗存活校验与自动安全回滚**：新版本拉起后自动对 `/api/health` 轮询 12 秒，若服务崩溃、无响应或退出，看门狗立即毫秒级自动还原 `.old` 二进制并拉起旧版本，确保家庭看护绝不失联；
+    * **发布流水线 Manifest 自动生成**：`--generate-manifest` 自动扫描目标二进制目录，输出带架构分类、SHA-256 和文件大小的 `manifest.json`；
+    * **ESP32-S3 探针固件 OTA 指令生成**：校验 ESP32 `0xE9` 固件标头，生成 `OTA_BEGIN:<SIZE>:<SHA256>` 标准下行指令；
+    * **配套自动化测试套件**：[tests/test_ota_updater.py](file:///Users/yifanwang/workspace/SafeHalo/tests/test_ota_updater.py) 8 项用例全量通过（含 ELF 解析、哈希拦截、原子替换、看门狗自动回滚等）。
+- **待硬件到手**：外壳、供电、物理安装支架与产线自动化刷机治具。
+- **依赖**：P0-1、P2-7。
 
 ### P3-5 多传感器生态扩展
 
