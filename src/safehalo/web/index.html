@@ -282,6 +282,19 @@
     }
     .quick-tag:hover { border-color: #0284c7; color: #0284c7; background: #e0f2fe; }
 
+    @keyframes calibPulse {
+      0% { transform: scale(0.96); opacity: 0.85; }
+      50% { transform: scale(1.06); opacity: 1; }
+      100% { transform: scale(0.96); opacity: 0.85; }
+    }
+    .calib-icon-pulse { animation: calibPulse 1.5s infinite ease-in-out; }
+    .toast-msg {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      background: #0f172a; color: #fff; padding: 12px 20px; border-radius: 10px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.25); font-size: 0.88rem; display: flex; align-items: center; gap: 8px;
+      opacity: 0; transform: translateY(20px); transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
     /* ===== 家属端看板（暖白 + 深青设计语言，仅作用于看板 tab） ===== */
     body.family-mode { background: #F6F4EF; }
     body.family-mode .tab-btn.active { color: #0F6B5E; border-bottom-color: #0F6B5E; background: rgba(15, 107, 94, 0.06); }
@@ -896,6 +909,7 @@
 
       <div class="subnav">
         <button type="button" class="subnav-btn" onclick="jumpSection('sec-logs')" >系统日志</button>
+        <button type="button" class="subnav-btn" onclick="jumpSection('sec-devices')" >现场硬件诊断</button>
         <button type="button" class="subnav-btn" onclick="jumpSection('sec-users')" id="subnav-users" style="display: none;">成员管理</button>
       </div>
 
@@ -943,6 +957,59 @@
             <span id="log-file-size" style="font-size: 0.8rem; color: var(--text-muted);">大小: 0 KB</span>
           </div>
           <pre id="raw-log-tail" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; font-family: monospace; font-size: 0.82rem; color: #0369a1; height: 260px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;"></pre>
+        </div>
+      </div>
+
+      <div id="sec-devices" class="tab-section">
+        <div class="card" style="margin-bottom: 20px;">
+          <div class="card-title">
+            <span>🛠️ 现场硬件探针诊断与多传感器生态控制台</span>
+            <button class="btn btn-secondary" onclick="fetchSensorsStatus()">刷新生态状态</button>
+          </div>
+          <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 14px;">
+            现场安装联调与作动测试工具。一键触发下行蜂鸣、语音播报与提频压测，并实时验证全屋门磁、红外与音箱联动事件。
+          </p>
+
+          <!-- 硬件作动测试工具箱 -->
+          <div style="background: #f8fafc; border: 1px solid var(--card-border); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+            <div style="font-weight: 700; font-size: 0.92rem; margin-bottom: 10px; color: #1e293b;">⚡ 探针与作动设备即时测试</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+              <button class="btn btn-secondary" onclick="sendDeviceCommand('CHALLENGE_BEEP:1')" title="触发探针蜂鸣器响一声">🔊 探针蜂鸣质询测试</button>
+              <button class="btn btn-secondary" onclick="sendDeviceCommand('CHALLENGE_VOICE:SafeHalo 语音交互测试已通过')" title="下发智能音箱语音测试">📢 音箱语音播报测试</button>
+              <button class="btn btn-secondary" onclick="sendDeviceCommand('BURST_RATE:50')" title="激励探针提频采样至 50Hz">⚡ 50Hz 提频采样测试</button>
+              <button class="btn btn-secondary" onclick="sendDeviceCommand('PING')" title="探针心跳联通握手">🏓 探针 PING 握手</button>
+            </div>
+          </div>
+
+          <!-- 现场模拟事件快速注入 -->
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+            <div style="font-weight: 700; font-size: 0.92rem; margin-bottom: 10px; color: #166534;">🧪 现场传感器事件模拟注入 (用于验收 TC-1 ~ TC-7)</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+              <button class="btn btn-secondary" style="border-color: #86efac;" onclick="sendMockSensorEvent('door_front', 'open')">🚪 模拟入户门推开</button>
+              <button class="btn btn-secondary" style="border-color: #86efac;" onclick="sendMockSensorEvent('door_front', 'closed')">🚪 模拟入户门关闭</button>
+              <button class="btn btn-secondary" style="border-color: #86efac;" onclick="sendMockSensorEvent('pir_living', 'motion_detected')">🚶 模拟红外走动动能</button>
+              <button class="btn btn-secondary" style="border-color: #86efac;" onclick="sendMockSensorEvent('speaker_living', 'voice_dismiss')">🗣️ 模拟语音消警 (我没事)</button>
+              <button class="btn btn-secondary" style="border-color: #fca5a5; color: #991b1b;" onclick="sendMockSensorEvent('sos_bedroom', 'sos_pressed')">🆘 模拟紧急按键求救</button>
+            </div>
+          </div>
+
+          <!-- 传感器生态与设备清单表格 -->
+          <h4 style="margin-bottom: 10px; font-size: 0.95rem;">📡 已接入设备与传感器状态</h4>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>设备 ID</th>
+                <th>传感器类型</th>
+                <th>房间/位置</th>
+                <th>当前状态</th>
+                <th>最近事件</th>
+                <th>最后心跳</th>
+              </tr>
+            </thead>
+            <tbody id="sensors-table-body">
+              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">正在加载设备与传感器列表...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -1103,6 +1170,20 @@
 
       <!-- ==================== 第 1 步：放哪儿 (空间与环境) ==================== -->
       <div class="wizard-step-pane active" id="wiz-pane-1">
+        <!-- 现场无线感知信号实时自检指示条 -->
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="pulse-dot" style="background: var(--success); width: 8px; height: 8px;"></span>
+            <span style="font-weight: 600; color: #1e293b;">现场无线感知自检:</span>
+            <span id="wiz-live-rate" style="color: var(--primary); font-weight: 700;">30.0 Hz</span>
+            <span style="color: var(--text-muted);">|</span>
+            <span id="wiz-live-purity" style="color: #64748b;">信道纯净: 100%</span>
+          </div>
+          <div>
+            <span id="wiz-live-signal-badge" style="background: #dcfce7; color: #166534; padding: 3px 9px; border-radius: 999px; font-weight: 600; font-size: 0.74rem;">探针在线 · 信号适宜</span>
+          </div>
+        </div>
+
         <div class="form-group">
           <label style="font-weight: 700;">1. 这台设备主要安放在哪个房间？</label>
           <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px;">
@@ -1266,6 +1347,27 @@
           </div>
         </div>
 
+        <div class="form-group" style="margin-top: 14px;">
+          <label style="font-weight: 700;">3. 多模态全屋安全感知生态（已就绪）</label>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px; font-size: 0.78rem;">
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 1.1rem;">🚪</div>
+              <div style="font-weight: 600; color: #1e293b;">门磁联动</div>
+              <div style="color: var(--text-muted); font-size: 0.7rem;">大门防盗 / 卫生间防滞留</div>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 1.1rem;">🚶</div>
+              <div style="font-weight: 600; color: #1e293b;">红外 PIR 动能</div>
+              <div style="color: var(--text-muted); font-size: 0.7rem;">走动激励 CSI 提频采样</div>
+            </div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; text-align: center;">
+              <div style="font-size: 1.1rem;">🔊</div>
+              <div style="font-weight: 600; color: #1e293b;">智能音箱</div>
+              <div style="color: var(--text-muted); font-size: 0.7rem;">双向语音质询与声控消警</div>
+            </div>
+          </div>
+        </div>
+
         <!-- 温暖生活化的专属方案预览 -->
         <div style="background: #f0f9ff; border: 1px dashed #0284c7; border-radius: 12px; padding: 14px; margin-top: 14px; font-size: 0.86rem;">
           <div style="font-weight: 700; color: #0284c7; margin-bottom: 4px;">💝 已为您生成的专属守护方案：</div>
@@ -1279,6 +1381,29 @@
           <button class="btn" style="flex: 1; padding: 12px; font-size: 0.95rem; background: var(--success);" onclick="submitSavePlacement()" title="保存后进行 5 秒环境自适应校准">开启安心守护</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- 现场安装 5 秒环境静默基线自适应标定视窗 -->
+  <div id="modal-calibration" class="modal-overlay">
+    <div class="modal-box" style="max-width: 440px; text-align: center; padding: 32px 24px;">
+      <div style="font-size: 2.8rem; margin-bottom: 12px;" class="calib-icon-pulse">📡</div>
+      <div style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">正在学习全屋空间射频基线</div>
+      <div style="font-size: 0.85rem; color: #64748b; line-height: 1.5; margin-bottom: 20px;">
+        请长辈与安装人员<strong>在房间内稍作静立或避让</strong><br>系统正在根据空间墙体与家具多径自适应学习环境静止底噪...
+      </div>
+      
+      <!-- 动态倒计时圆环与数字 -->
+      <div style="position: relative; width: 96px; height: 96px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
+        <svg width="96" height="96" viewBox="0 0 100 100" style="transform: rotate(-90deg); position: absolute;">
+          <circle cx="50" cy="50" r="42" stroke="#e2e8f0" stroke-width="8" fill="none" />
+          <circle id="calib-progress-circle" cx="50" cy="50" r="42" stroke="#10b981" stroke-width="8" fill="none"
+                  stroke-dasharray="264" stroke-dashoffset="0" style="transition: stroke-dashoffset 1s linear;" />
+        </svg>
+        <span id="calib-countdown-num" style="font-size: 2.2rem; font-weight: 800; color: #0f172a;">5</span>
+      </div>
+
+      <div id="calib-status-text" style="font-size: 0.85rem; color: #059669; font-weight: 600;">正在采样房间多径反射底噪特征...</div>
     </div>
   </div>
 
@@ -1296,10 +1421,50 @@
       switchWizardStep(1);
       document.getElementById('modal-placement-wizard').classList.add('active');
       updatePlacementParamPreview();
+      updateWizardLiveRF();
+      if (!window._wizardLiveInterval) {
+        window._wizardLiveInterval = setInterval(updateWizardLiveRF, 1500);
+      }
     }
 
     function closePlacementModal() {
       document.getElementById('modal-placement-wizard').classList.remove('active');
+      if (window._wizardLiveInterval) {
+        clearInterval(window._wizardLiveInterval);
+        window._wizardLiveInterval = null;
+      }
+    }
+
+    function updateWizardLiveRF() {
+      fetch('/api/status')
+      .then(r => r.json())
+      .then(d => {
+        const rateElem = document.getElementById('wiz-live-rate');
+        const purityElem = document.getElementById('wiz-live-purity');
+        const badgeElem = document.getElementById('wiz-live-signal-badge');
+        if (rateElem) rateElem.innerText = (d.sample_rate || 30.0).toFixed(1) + ' Hz';
+        if (purityElem && d.neighbor_filter) {
+          const p = d.neighbor_filter.channel_purity_percent !== undefined ? d.neighbor_filter.channel_purity_percent : 100;
+          purityElem.innerText = '信道纯净: ' + p.toFixed(0) + '%';
+        }
+        if (badgeElem) {
+          const rate = d.sample_rate || 0;
+          if (rate >= 25) {
+            badgeElem.innerText = '探针在线 · 信号适宜';
+            badgeElem.style.background = '#dcfce7';
+            badgeElem.style.color = '#166534';
+          } else if (rate > 0) {
+            badgeElem.innerText = '帧率偏低 · 建议微调天线';
+            badgeElem.style.background = '#fef3c7';
+            badgeElem.style.color = '#92400e';
+          } else {
+            badgeElem.innerText = '探针离线 · 检查串口';
+            badgeElem.style.background = '#fee2e2';
+            badgeElem.style.color = '#991b1b';
+          }
+        }
+      })
+      .catch(() => {});
     }
 
     function switchWizardStep(step) {
@@ -1476,9 +1641,8 @@
           if (pushToken && document.getElementById('cfg-pushplus')) {
             document.getElementById('cfg-pushplus').value = pushToken;
           }
-          alert('🏡 ' + d.message);
           closePlacementModal();
-          checkPlacementStatus();
+          startCalibrationCountdown(d.message);
         } else {
           alert('保存失败: ' + (d.message || '未知错误'));
         }
@@ -1486,6 +1650,119 @@
       .catch(err => {
         alert('保存网络异常: ' + err);
       });
+    }
+
+    function startCalibrationCountdown(successMsg) {
+      const modal = document.getElementById('modal-calibration');
+      if (!modal) {
+        alert('🏡 ' + successMsg);
+        checkPlacementStatus();
+        return;
+      }
+      modal.classList.add('active');
+      let remain = 5;
+      const numElem = document.getElementById('calib-countdown-num');
+      const textElem = document.getElementById('calib-status-text');
+      const circle = document.getElementById('calib-progress-circle');
+      const totalLen = 264; // 2 * PI * 42
+
+      const interval = setInterval(() => {
+        remain--;
+        if (numElem) numElem.innerText = remain;
+        if (circle) {
+          const offset = totalLen * (1 - remain / 5);
+          circle.style.strokeDashoffset = offset;
+        }
+        if (remain === 3 && textElem) {
+          textElem.innerText = '正在计算水泥墙体与家具多径反射基线...';
+        } else if (remain === 1 && textElem) {
+          textElem.innerText = '基线收敛完成，正在固化空间自适应参数...';
+        }
+
+        if (remain <= 0) {
+          clearInterval(interval);
+          if (numElem) numElem.innerText = '✓';
+          if (textElem) textElem.innerText = '✨ 标定完成！SafeHalo 空间守护已正式启动';
+          setTimeout(() => {
+            modal.classList.remove('active');
+            checkPlacementStatus();
+            switchTab('dashboard');
+            showToast('🏡 ' + successMsg, true);
+          }, 800);
+        }
+      }, 1000);
+    }
+
+    function sendDeviceCommand(cmd, devId) {
+      fetch('/api/devices/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd, device_id: devId || 'csi_probe_0' })
+      })
+      .then(r => r.json())
+      .then(d => {
+        showToast(d.message || (d.success ? '指令已成功发送' : '下发失败'), d.success);
+      })
+      .catch(e => showToast('指令发送失败: ' + e, false));
+    }
+
+    function sendMockSensorEvent(devId, eventName) {
+      fetch('/api/sensors/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: devId, event: eventName })
+      })
+      .then(r => r.json())
+      .then(d => {
+        showToast(`[${devId}] ${d.message || d.action}`, d.success);
+        fetchSensorsStatus();
+      })
+      .catch(e => showToast('事件发送失败: ' + e, false));
+    }
+
+    function fetchSensorsStatus() {
+      fetch('/api/sensors/status')
+      .then(r => r.json())
+      .then(d => {
+        const tbody = document.getElementById('sensors-table-body');
+        if (!tbody) return;
+        const devs = d.devices || [];
+        if (devs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">暂无设备数据</td></tr>';
+          return;
+        }
+        tbody.innerHTML = devs.map(dev => {
+          return `<tr>
+            <td style="font-weight: 700;">${fhEsc(dev.device_id || dev.id)}</td>
+            <td><span class="fh-badge" style="background:#e0f2fe;color:#0369a1;">${fhEsc(dev.sensor_type || dev.type)}</span></td>
+            <td>${fhEsc(dev.room || '全屋')}</td>
+            <td><strong>${fhEsc(dev.state || dev.status)}</strong></td>
+            <td>${fhEsc(dev.last_event || '--')}</td>
+            <td>${dev.last_seen ? Math.round(Date.now()/1000 - dev.last_seen) + ' 秒前' : '--'}</td>
+          </tr>`;
+        }).join('');
+      })
+      .catch(() => {});
+    }
+
+    function showToast(msg, isSuccess) {
+      let toast = document.getElementById('app-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'app-toast';
+        toast.className = 'toast-msg';
+        document.body.appendChild(toast);
+      }
+      const ok = (isSuccess !== false);
+      toast.style.background = ok ? '#065f46' : '#991b1b';
+      toast.innerHTML = (ok ? '✓ ' : '⚠️ ') + fhEsc(msg);
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateY(0)';
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+      }, 3000);
     }
 
     function checkPlacementStatus() {
@@ -1698,6 +1975,7 @@
       document.body.classList.toggle('family-mode', tabId === 'dashboard');
       if (tabId === 'admin') {
         fetchLogs();
+        fetchSensorsStatus();
         if (currentUser && currentUser.role === 'admin') fetchUsers();
       }
     }
