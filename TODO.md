@@ -35,13 +35,18 @@
 
 ## P0：安全 / 正确性 / 试点阻断
 
-### P0-1 真实硬件联调与长稳验证
+### P0-1 真实硬件联调与长稳验证（前置工具与协议已就绪，待物理节点接入）
 
-- **现状**：服务验证主要基于 pty、mock HTTP 和 replay；真实 ESP32 串口作动、断网/掉线/断电恢复、7×24 长稳尚未闭环。
-- **任务**：
-  - 在真实 ESP32-S3 + 2.4GHz 路由器上验证 `BURST_RATE:100/30`、`CHALLENGE_BEEP:1` 实际下发与探针响应。
-  - 验证拔插串口、路由器重启、断网、断电恢复后的自动重连与状态恢复。
-  - 在 OpenWrt 目标设备上跑 24–72 小时长稳，记录 RSS、fd、flash 写入、事件/告警文件增长。
+- **现状**：硬件联调前置排障与协议套件已全面就绪，待物理 ESP32-S3 探针与 2.4GHz 路由器接入执行实操勾选。
+- **已完成前置套件**：
+  * **硬件探针自检工具** [scripts/hardware_probe_doctor.py](file:///Users/yifanwang/workspace/SafeHalo/scripts/hardware_probe_doctor.py)：支持探针自动发现、波特率自适应、52 子载波 HT20 校验、BSSID 锁定、下行提频作动 (`BURST_RATE:100/30`) 握手及 `--mock` 虚拟自检；
+  * **固件烧录辅助脚本** [firmware/flash_firmware.sh](file:///Users/yifanwang/workspace/SafeHalo/firmware/flash_firmware.sh)：封装 `esptool.py` 实现一键芯片识别、全盘擦除、固件烧录与串口监视；
+  * **现场联调验收协议** [docs/hardware_verification_checklist.md](file:///Users/yifanwang/workspace/SafeHalo/docs/hardware_verification_checklist.md)：定义 TC-1 ~ TC-7 详尽用例（冷启动静默标定、日常动作零误报、软垫跌倒冲击提频、本地质询化解、串口热拔插自愈、断网重连队列持久化、iOS Bark 强提醒突破）与交付打分表；
+  * **长稳压测套件** [scripts/soak_test.py](file:///Users/yifanwang/workspace/SafeHalo/scripts/soak_test.py)：通过 1,600+ pps 超频加压，验证 2.67MB 超低常驻、零泄漏与 20.1 KB/h 极低 Flash 磨损。
+- **现场接入任务**：
+  - 在真实 ESP32-S3 + 2.4GHz 路由器上执行 `hardware_probe_doctor.py` 巡检；
+  - 按 `hardware_verification_checklist.md` 逐项执行 TC-1 至 TC-7 并在评分表签字确认；
+  - 在 OpenWrt 目标设备上跑 24–72 小时长稳并导出最终报告。
 - **完成标准**：真实硬件联调报告；长稳期间无内存泄漏、无异常退出、无 flash 写穿；掉线后自动恢复。
 - **依赖**：硬件、现场环境、`experiments/rust-daemon/deploy/`。
 
