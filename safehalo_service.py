@@ -154,11 +154,19 @@ class SafeHaloSupervisor:
             placement_adapter,
             pilot_manager,
             incident_manager,
+            sensor_ecosystem,
             SafeHaloWebHandler,
         )
         self.placement_adapter = placement_adapter
         self.pilot_manager = pilot_manager
         self.incident_manager = incident_manager
+        self.sensor_ecosystem = sensor_ecosystem
+        if self.sensor_ecosystem:
+            self.sensor_ecosystem.on_fall_confirmed = self._on_ecosystem_fall_confirmed
+            self.sensor_ecosystem.on_challenge_dismissed = self._on_ecosystem_challenge_dismissed
+            self.sensor_ecosystem.on_security_alert = self._on_ecosystem_security_alert
+            self.sensor_ecosystem.on_request_burst_rate = self._on_request_burst_rate
+            self.sensor_ecosystem.on_speaker_actuate = self._on_speaker_actuate
         self.placement_adapter.apply_to_engines(csi_engine=self.engine, dual_engine=self.dual_engine)
         self.routine_monitor.apply_onboarding_preferences(
             wake_habit=self.placement_adapter.current_config.wake_habit,
@@ -184,6 +192,8 @@ class SafeHaloSupervisor:
 
     def _on_web_mode_changed(self, mode_str: str):
         target = self.security_guard.set_mode_by_name(mode_str)
+        if self.sensor_ecosystem:
+            self.sensor_ecosystem.set_security_mode(target)
         shared_system_state["security_mode"] = mode_str
         if self.ha_bridge and self.ha_bridge.client and self.ha_bridge.client.connected:
             self.ha_bridge.client.publish("safehalo/alarm_control_panel/guard/state", target.value)
@@ -215,6 +225,17 @@ class SafeHaloSupervisor:
             self._on_web_trigger_inspect(reason="Home Assistant 远程触发定向核验")
         elif topic.endswith("/security_mode"):
             self._on_web_mode_changed(payload)
+        elif "sensor" in topic and self.sensor_ecosystem:
+            try:
+                import json
+                data = json.loads(payload)
+                self.sensor_ecosystem.handle_event(
+                    device_id=data.get("device_id", "ha_sensor"),
+                    event_name=data.get("event", data.get("state", "motion")),
+                    extra=data,
+                )
+            except Exception as e:
+                logger.warning(f"[HomeAssistantBridge] 解析传感器事件异常: {e}")
 
     def _on_request_burst_rate(self, target_hz: int):
         """向硬件探针串口下发激振采样率控制命令 (如 BURST_RATE:100)"""
@@ -233,6 +254,52 @@ class SafeHaloSupervisor:
             logger.info("[ChallengeWindow] 用户已设置免提示音模式，静默观测是否自主起身...")
             return
         logger.info(f"[ChallengeWindow] {prompt_msg}")
+        if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
+            try:
+                self._active_csi_serial.write(b"CHALLENGE_BEEP:1\n")
+            except Exception:
+                pass
+        if self.sensor_ecosystem:
+            self.sensor_ecosystem.notify_csi_fall_suspect(prompt_msg)
+
+    def _on_ecosystem_fall_confirmed(self, room: str, confidence: float, details: str):
+        """多传感器生态（智能音箱呼救 / 卫生间滞留 / 紧急 SOS）触发确诊告警"""
+        logger.log_fall_confirmed(details, bpm=0.0, confidence=confidence)
+        self.incident_manager.record_incident(
+            room_name=room,
+            confidence=confidence,
+            details=details,
+            respiration_bpm=0.0,
+        )
+        shared_system_state["state"] = "FALL_CONFIRMED"
+        self.notifier.send_fall_alarm(
+            room_name=room,
+            confidence="高" if confidence >= 0.8 else "中",
+            details=details,
+            bpm=0.0,
+        )
+        if self.ha_bridge and self.ha_bridge.client and self.ha_bridge.client.connected:
+            self.ha_bridge.client.publish("safehalo/binary_sensor/fall/state", "ON")
+
+    def _on_ecosystem_challenge_dismissed(self, details: str):
+        """老人通过智能音箱语音应答消警"""
+        logger.info(f"[ECOSYSTEM] {details}")
+        self.engine.detector.targeted_inspector.acknowledge_safe(source="智能音箱语音消警")
+        if self.dual_engine:
+            self.dual_engine.csi_detector.targeted_inspector.acknowledge_safe(source="智能音箱语音消警")
+        shared_system_state["state"] = "RESTING"
+
+    def _on_ecosystem_security_alert(self, alert_type: str, details: str, meta: dict):
+        """多传感器生态（门磁外围突破 / PIR 入侵确认）触发安防报警"""
+        logger.log_event("SECURITY_INTRUSION", f"{alert_type}: {details}", level="ALARM")
+        self.notifier.send_custom_notification(
+            title="【SafeHalo】安防入侵警报",
+            content=details,
+        )
+
+    def _on_speaker_actuate(self, device_id: str, command: str):
+        """驱动现场智能音箱或串口蜂鸣器执行语音质询/作动"""
+        logger.info(f"[ECOSYSTEM] 驱动音箱设备 [{device_id}] 执行作动: {command}")
         if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
             try:
                 self._active_csi_serial.write(b"CHALLENGE_BEEP:1\n")
@@ -544,6 +611,8 @@ class SafeHaloSupervisor:
 
                     if self.engine.total_packets_received % 80 == 0:
                         shared_system_state["neighbor_filter"] = self.engine.neighbor_filter.get_spectrum_analysis()
+                        if self.sensor_ecosystem:
+                            self.sensor_ecosystem.check_periodical_linkage()
 
             except Exception as e:
                 logger.warning(f"数据读取中断或硬件掉电: {e}，正在进入自愈重连流程...")

@@ -232,3 +232,30 @@ def test_web_portal_sensor_event_and_status_integration():
     assert "total_devices" in status
     assert "devices" in status
     assert any(d["device_id"] == "door_front" and d["state"] == "open" for d in status["devices"])
+
+
+def test_safehalo_supervisor_sensor_ecosystem_integration():
+    from safehalo_service import SafeHaloSupervisor
+    from src.safehalo.security_guard import SecurityMode
+
+    supervisor = SafeHaloSupervisor(demo_mode=True)
+    assert supervisor.sensor_ecosystem is not None
+
+    # 1. 验证布防模式同步
+    supervisor._on_web_mode_changed("ARMED_AWAY")
+    assert supervisor.sensor_ecosystem.security_mode == SecurityMode.ARMED_AWAY
+
+    # 2. 验证 CSI 质询触发联动智能音箱
+    supervisor.engine.detector.targeted_inspector.trigger_inspection(timestamp=time.time())
+    supervisor._on_trigger_challenge("疑似跌倒质询测试")
+    assert supervisor.sensor_ecosystem.challenge_active is True
+
+    # 3. 验证语音消警化解
+    supervisor._on_ecosystem_challenge_dismissed("老人应答正常")
+    assert supervisor.engine.detector.targeted_inspector.manual_safe_acknowledged is True
+
+    # 4. 验证生态紧急确诊
+    supervisor._on_ecosystem_fall_confirmed("卫生间", 1.0, "卫生间困顿超时")
+    incidents = supervisor.incident_manager.list_recent_incidents(1)
+    assert len(incidents) >= 1
+    assert incidents[0]["room_name"] == "卫生间"
