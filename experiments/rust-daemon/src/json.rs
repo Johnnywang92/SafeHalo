@@ -44,6 +44,7 @@ impl Json {
             _ => None,
         }
     }
+    #[allow(dead_code)]
     pub fn as_obj(&self) -> Option<&Vec<(String, Json)>> {
         match self {
             Json::Obj(v) => Some(v),

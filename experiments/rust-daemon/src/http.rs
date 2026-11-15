@@ -88,6 +88,7 @@ impl RateLimiter {
     }
 }
 
+#[allow(dead_code)]
 fn ctype(path: &str) -> &'static str {
     if path.ends_with(".html") || path == "/" {
         "text/html; charset=utf-8"

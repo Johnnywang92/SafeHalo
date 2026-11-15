@@ -500,6 +500,7 @@ impl AuthManager {
         (true, "用户已成功删除".into())
     }
 
+    #[allow(dead_code)]
     pub fn default_admin_path(&self) -> String {
         self.file.display().to_string()
     }

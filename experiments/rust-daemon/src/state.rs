@@ -382,6 +382,7 @@ impl Bus {
         self.cv.notify_all();
     }
 
+    #[allow(dead_code)]
     pub fn push_event_locked(&self, s: &mut Shared, event_type: &str, level: &str, message: &str, data: &str) {
         s.events.push(event_type, level, message, data);
         self.cv.notify_all();

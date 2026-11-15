@@ -13,6 +13,7 @@ use crate::timefmt;
 pub const STATUS_PENDING: &str = "PENDING";
 pub const STATUS_CONFIRMED_TRUE: &str = "CONFIRMED_TRUE";
 pub const STATUS_FALSE_ALARM: &str = "FALSE_ALARM";
+#[allow(dead_code)]
 pub const STATUS_CHALLENGE_INTERCEPTED: &str = "CHALLENGE_INTERCEPTED";
 
 #[derive(Clone)]

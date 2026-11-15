@@ -272,6 +272,7 @@ impl SignalFilter {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Features {
     pub timestamp: f64,

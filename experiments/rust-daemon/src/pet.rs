@@ -1,5 +1,6 @@
 // Port of src/safehalo/pet_filter.py (PetImmunityFilter)
 
+#[allow(dead_code)]
 pub struct PetResult {
     pub is_pet: bool,
     pub confidence: f64,
