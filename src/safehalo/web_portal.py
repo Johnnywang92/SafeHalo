@@ -75,6 +75,7 @@ shared_system_state = {
     "spr": 0.18,
     "is_pet": False,
     "security_mode": "FALL_GUARD",
+    "security_alert": False,
     "radar_online": False,
     "radar_protocol": "None",
     "radar_z": 0.0,

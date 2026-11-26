@@ -284,7 +284,7 @@ class AlertNotifier:
 
     def enqueue_custom_notification(self, **kwargs):
         self.start_async_worker()
-        self._async_queue.put({"id": "", "kind": "custom", "kwargs": kwargs})
+        self._async_queue.put({"id": kwargs.get("event_id") or "", "kind": "custom", "kwargs": kwargs})
 
     def send_fall_alarm(
         self,
@@ -451,7 +451,16 @@ class AlertNotifier:
 
         return success
 
-    def send_custom_notification(self, title: str, content: str, critical: bool = True) -> bool:
+    def send_custom_notification(
+        self,
+        title: str,
+        content: str,
+        critical: bool = True,
+        room_name: str = "家庭监控区域",
+        ha_event: str = "security_intrusion",
+        event_id: str = "",
+        household_id: str = "H01",
+    ) -> bool:
         """发送通用安全/生态联动通知"""
         success = False
         if self.pushplus_token:
@@ -462,10 +471,12 @@ class AlertNotifier:
             success = self._send_webhook(title, content) or success
         if self.ha_webhook_url:
             success = self._send_ha_webhook(
-                event="security_intrusion",
-                room_name="家庭监控区域",
+                event=ha_event,
+                room_name=room_name,
                 confidence="高",
                 details=content,
+                event_id=event_id,
+                household_id=household_id,
             ) or success
         if self.bark_key:
             success = self._send_bark(

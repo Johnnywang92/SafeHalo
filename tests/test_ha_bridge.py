@@ -47,7 +47,7 @@ class TestHomeAssistantBridge(unittest.TestCase):
         self.assertEqual(bytes(client._encode_remaining_len(16383)), bytes([0xFF, 0x7F]))
 
     def test_ha_discovery_registration(self):
-        """测试向 Home Assistant 注册的 9 个实体配置"""
+        """测试向 Home Assistant 注册实体配置"""
         self.bridge._publish_discovery()
 
         published = {topic: json.loads(payload) for topic, payload, _ in self.mock_client.published_messages}
@@ -90,6 +90,12 @@ class TestHomeAssistantBridge(unittest.TestCase):
         wake_topic = "homeassistant/sensor/safehalo/wake_time/config"
         self.assertIn(wake_topic, published)
 
+        # 8. 验证多传感器生态安防警报
+        security_topic = "homeassistant/binary_sensor/safehalo/security/config"
+        self.assertIn(security_topic, published)
+        self.assertEqual(published[security_topic]["state_topic"], "safehalo/binary_sensor/security/state")
+        self.assertEqual(published[security_topic]["device_class"], "safety")
+
     def test_ha_state_publishing(self):
         """测试状态流转时发布到对应 Home Assistant state topics"""
         self.mock_client.published_messages.clear()
@@ -107,10 +113,12 @@ class TestHomeAssistantBridge(unittest.TestCase):
             routine_anomaly=True,
             wake_time="07:20",
             night_restless_count=2,
+            is_security_alert=True,
         )
 
         published_dict = {topic: payload for topic, payload, _ in self.mock_client.published_messages}
         self.assertEqual(published_dict.get("safehalo/binary_sensor/fall/state"), "ON")
+        self.assertEqual(published_dict.get("safehalo/binary_sensor/security/state"), "ON")
         self.assertEqual(published_dict.get("safehalo/binary_sensor/presence/state"), "ON")
         self.assertEqual(published_dict.get("safehalo/binary_sensor/motion/state"), "OFF")
         self.assertEqual(published_dict.get("safehalo/binary_sensor/pet/state"), "OFF")

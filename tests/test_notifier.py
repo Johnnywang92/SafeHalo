@@ -56,6 +56,41 @@ class TestNotifier(unittest.TestCase):
         self.assertIn("主卧卫生间", bark_payload["body"])
         self.assertIn("16 bpm", bark_payload["body"])
 
+    def test_custom_security_notification_ha_payload(self):
+        notifier = AlertNotifier(ha_webhook_url="http://mock.ha/webhook")
+        notifier._http_post_json = MagicMock(return_value=True)
+
+        ok = notifier.send_custom_notification(
+            title="【SafeHalo】防走失警报",
+            content="深夜外门已推开",
+            room_name="入户玄关",
+            ha_event="curfew_wandering",
+            event_id="evt_security_1",
+            household_id="H02",
+        )
+
+        self.assertTrue(ok)
+        url, payload = notifier._http_post_json.call_args[0]
+        self.assertEqual(url, "http://mock.ha/webhook")
+        self.assertEqual(payload["event"], "curfew_wandering")
+        self.assertEqual(payload["room"], "入户玄关")
+        self.assertEqual(payload["event_id"], "evt_security_1")
+        self.assertEqual(payload["household_id"], "H02")
+
+    def test_custom_notification_queue_uses_event_id(self):
+        notifier = AlertNotifier()
+        notifier.start_async_worker = MagicMock()
+
+        notifier.enqueue_custom_notification(
+            title="安防入侵警报",
+            content="门磁触发",
+            event_id="evt_security_2",
+        )
+
+        task = notifier._async_queue.get_nowait()
+        self.assertEqual(task["id"], "evt_security_2")
+        self.assertEqual(task["kind"], "custom")
+
     def test_deduplication(self):
         notifier = AlertNotifier(
             pushplus_token="mock_pushplus",

@@ -234,11 +234,19 @@ def test_web_portal_sensor_event_and_status_integration():
     assert any(d["device_id"] == "door_front" and d["state"] == "open" for d in status["devices"])
 
 
-def test_safehalo_supervisor_sensor_ecosystem_integration():
+def test_safehalo_supervisor_sensor_ecosystem_integration(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
     from safehalo_service import SafeHaloSupervisor
+    from src.safehalo.miniprogram_bridge import IncidentFeedbackManager
     from src.safehalo.security_guard import SecurityMode
+    from src.safehalo.web_portal import shared_system_state
 
     supervisor = SafeHaloSupervisor(demo_mode=True)
+    supervisor.incident_manager = IncidentFeedbackManager(storage_dir=str(tmp_path))
+    supervisor.notifier = MagicMock()
+    monkeypatch.setitem(shared_system_state, "security_alert", False)
+    monkeypatch.setattr("safehalo_service.logger.log_fall_confirmed", MagicMock())
+    monkeypatch.setattr("safehalo_service.logger.log_event", MagicMock())
     assert supervisor.sensor_ecosystem is not None
 
     # 1. 验证布防模式同步
@@ -268,3 +276,70 @@ def test_safehalo_supervisor_sensor_ecosystem_integration():
 
     # 6. 验证生态安全告警不会触发 AttributeError
     supervisor._on_ecosystem_security_alert("PERIMETER_BREACH", "测试门磁入侵", {})
+
+
+@pytest.mark.parametrize(
+    "alert_type,room,confidence,ha_event,title",
+    [
+        ("PERIMETER_BREACH", "入户玄关", 0.95, "security_intrusion", "【SafeHalo】安防入侵警报"),
+        ("CONFIRMED_INTRUSION", "客厅", 0.98, "security_intrusion", "【SafeHalo】安防入侵警报"),
+        ("INTRUSION_MOTION", "客厅", 0.98, "security_intrusion", "【SafeHalo】安防入侵警报"),
+        ("CURFEW_WANDERING", "入户玄关", 0.95, "curfew_wandering", "【SafeHalo】防走失警报"),
+    ],
+)
+def test_safehalo_supervisor_security_alert_closure(
+    tmp_path, monkeypatch, alert_type, room, confidence, ha_event, title
+):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from safehalo_service import SafeHaloSupervisor
+    from src.safehalo.miniprogram_bridge import IncidentFeedbackManager
+    from src.safehalo.security_guard import SecurityMode
+    from src.safehalo.web_portal import shared_system_state
+
+    supervisor = SafeHaloSupervisor.__new__(SafeHaloSupervisor)
+    supervisor.placement_adapter = SimpleNamespace(
+        current_config=SimpleNamespace(room_name="默认房间")
+    )
+    supervisor.pilot_manager = SimpleNamespace(active_household_id="H02")
+    supervisor.incident_manager = IncidentFeedbackManager(storage_dir=str(tmp_path))
+    supervisor.notifier = MagicMock()
+    supervisor.ha_bridge = MagicMock()
+    supervisor.ha_bridge.client.connected = True
+    supervisor.security_guard = MagicMock()
+    supervisor.security_guard.set_mode_by_name.return_value = SecurityMode.DISARMED
+    supervisor.sensor_ecosystem = MagicMock()
+    monkeypatch.setitem(shared_system_state, "security_alert", False)
+    monkeypatch.setattr("safehalo_service.logger.log_event", MagicMock())
+
+    details = f"{alert_type} 测试告警"
+    supervisor._on_ecosystem_security_alert(alert_type, details, {"room": room})
+
+    incidents = supervisor.incident_manager.list_recent_incidents(1)
+    assert len(incidents) == 1
+    incident = incidents[0]
+    assert incident["event_type"] == "SECURITY_INTRUSION"
+    assert incident["room_name"] == room
+    assert incident["confidence"] == confidence
+    assert incident["household_id"] == "H02"
+    assert incident["details"] == details
+    assert incident["miniprogram_pushed"] is False
+
+    supervisor.notifier.enqueue_custom_notification.assert_called_once_with(
+        title=title,
+        content=details,
+        room_name=room,
+        ha_event=ha_event,
+        event_id=incident["event_id"],
+        household_id="H02",
+    )
+    assert shared_system_state["security_alert"] is True
+    supervisor.ha_bridge.client.publish.assert_called_once_with(
+        "safehalo/binary_sensor/security/state", "ON"
+    )
+
+    supervisor._on_web_mode_changed("DISARMED")
+    assert shared_system_state["security_alert"] is False
+    supervisor.ha_bridge.client.publish.assert_any_call(
+        "safehalo/binary_sensor/security/state", "OFF"
+    )

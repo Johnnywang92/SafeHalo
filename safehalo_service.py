@@ -206,6 +206,10 @@ class SafeHaloSupervisor:
         if self.sensor_ecosystem:
             self.sensor_ecosystem.set_security_mode(target)
         shared_system_state["security_mode"] = mode_str
+        if target == SecurityMode.DISARMED:
+            shared_system_state["security_alert"] = False
+            if self.ha_bridge and self.ha_bridge.client and self.ha_bridge.client.connected:
+                self.ha_bridge.client.publish("safehalo/binary_sensor/security/state", "OFF")
         if self.ha_bridge and self.ha_bridge.client and self.ha_bridge.client.connected:
             self.ha_bridge.client.publish("safehalo/alarm_control_panel/guard/state", target.value)
 
@@ -351,11 +355,32 @@ class SafeHaloSupervisor:
 
     def _on_ecosystem_security_alert(self, alert_type: str, details: str, meta: dict):
         """多传感器生态（门磁外围突破 / PIR 入侵确认）触发安防报警"""
-        logger.log_event("SECURITY_INTRUSION", f"{alert_type}: {details}", level="ALARM")
-        self.notifier.enqueue_custom_notification(
-            title="【SafeHalo】安防入侵警报",
-            content=details,
+        meta = meta or {}
+        room = str(meta.get("room") or self.placement_adapter.current_config.room_name or "家庭监控区域")
+        confidence = 0.98 if alert_type in ("CONFIRMED_INTRUSION", "INTRUSION_MOTION") else 0.95
+        is_curfew = alert_type == "CURFEW_WANDERING"
+        logger.log_event("SECURITY_INTRUSION", f"{alert_type}: {details}", level="ALERT")
+        inc = self.incident_manager.record_incident(
+            room_name=room,
+            event_type="SECURITY_INTRUSION",
+            confidence=confidence,
+            respiration_bpm=0.0,
+            details=details,
+            household_id=self.pilot_manager.active_household_id,
+            # 现有微信订阅模板是跌倒专用，安防事件只入事件库并走通用通知。
+            push_to_miniprogram=False,
         )
+        shared_system_state["security_alert"] = True
+        self.notifier.enqueue_custom_notification(
+            title="【SafeHalo】防走失警报" if is_curfew else "【SafeHalo】安防入侵警报",
+            content=details,
+            room_name=room,
+            ha_event="curfew_wandering" if is_curfew else "security_intrusion",
+            event_id=inc.event_id if inc else "",
+            household_id=self.pilot_manager.active_household_id,
+        )
+        if self.ha_bridge and self.ha_bridge.client and self.ha_bridge.client.connected:
+            self.ha_bridge.client.publish("safehalo/binary_sensor/security/state", "ON")
 
     def _on_speaker_actuate(self, device_id: str, command: str) -> bool:
         """驱动现场智能音箱或串口蜂鸣器执行语音质询/作动"""
@@ -421,6 +446,7 @@ class SafeHaloSupervisor:
                 routine_anomaly=rt_summary.get("has_anomaly", False),
                 wake_time=rt_summary.get("wake_time", ""),
                 night_restless_count=rt_summary.get("night_restless_count", 0),
+                is_security_alert=shared_system_state.get("security_alert", False),
             )
 
     def _on_routine_anomaly(self, evt: RoutineAnomalyEvent):
@@ -506,6 +532,7 @@ class SafeHaloSupervisor:
                 routine_anomaly=rt_summary.get("has_anomaly", False),
                 wake_time=rt_summary.get("wake_time", ""),
                 night_restless_count=rt_summary.get("night_restless_count", 0),
+                is_security_alert=shared_system_state.get("security_alert", False),
             )
 
     def _on_fused_fall_alarm(self, res: FusedPerceptionResult):

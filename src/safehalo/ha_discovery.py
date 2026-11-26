@@ -502,6 +502,18 @@ class HomeAssistantBridge:
                     "icon": "mdi:shield-home",
                 },
             ),
+            (
+                "binary_sensor",
+                "security",
+                {
+                    "name": "安防入侵警报",
+                    "device_class": "safety",
+                    "state_topic": "safehalo/binary_sensor/security/state",
+                    "payload_on": "ON",
+                    "payload_off": "OFF",
+                    "icon": "mdi:shield-alert",
+                },
+            ),
         ]
 
         for component, object_id, config in entities:
@@ -526,6 +538,7 @@ class HomeAssistantBridge:
         routine_anomaly: bool = False,
         wake_time: str = "",
         night_restless_count: int = 0,
+        is_security_alert: bool = False,
     ):
         """
         向 Home Assistant 发布最新实时状态与作息指标
@@ -535,6 +548,8 @@ class HomeAssistantBridge:
 
         # 跌倒
         self.client.publish("safehalo/binary_sensor/fall/state", "ON" if is_fall else "OFF")
+        # 安防入侵
+        self.client.publish("safehalo/binary_sensor/security/state", "ON" if is_security_alert else "OFF")
         # 存在
         self.client.publish("safehalo/binary_sensor/presence/state", "ON" if is_presence else "OFF")
         # 运动
