@@ -230,8 +230,7 @@ class SafeHaloSupervisor:
     def _on_web_device_command(self, device_id: str, cmd: str) -> bool:
         if cmd.startswith("BURST_RATE:"):
             try:
-                self._on_request_burst_rate(int(cmd.split(":", 1)[1]))
-                return True
+                return self._on_request_burst_rate(int(cmd.split(":", 1)[1]))
             except ValueError:
                 return False
         if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
@@ -292,16 +291,18 @@ class SafeHaloSupervisor:
             except Exception as e:
                 logger.warning(f"[HomeAssistantBridge] 解析传感器事件异常: {e}")
 
-    def _on_request_burst_rate(self, target_hz: int):
+    def _on_request_burst_rate(self, target_hz: int) -> bool:
         """向硬件探针串口下发激振采样率控制命令 (如 BURST_RATE:100)"""
+        if not self._active_csi_serial or not hasattr(self._active_csi_serial, "write"):
+            return False
+        try:
+            self._active_csi_serial.write(f"BURST_RATE:{target_hz}\n".encode("utf-8"))
+        except Exception as e:
+            logger.debug(f"[BurstControl] 串口写入提频指令未成功: {e}")
+            return False
         shared_system_state["sample_rate"] = float(target_hz)
         logger.info(f"[BurstControl] 射频采样率调控指令已激活: 目标 {target_hz} Hz")
-        if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
-            try:
-                cmd = f"BURST_RATE:{target_hz}\n".encode("utf-8")
-                self._active_csi_serial.write(cmd)
-            except Exception as e:
-                logger.debug(f"[BurstControl] 串口写入提频指令未成功: {e}")
+        return True
 
     def _on_trigger_challenge(self, prompt_msg: str):
         """阶段 2：疑似跌倒持续静止，向硬件蜂鸣器/语音网关发起本地质询"""
@@ -356,14 +357,17 @@ class SafeHaloSupervisor:
             content=details,
         )
 
-    def _on_speaker_actuate(self, device_id: str, command: str):
+    def _on_speaker_actuate(self, device_id: str, command: str) -> bool:
         """驱动现场智能音箱或串口蜂鸣器执行语音质询/作动"""
         logger.info(f"[ECOSYSTEM] 驱动音箱设备 [{device_id}] 执行作动: {command}")
-        if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
-            try:
-                self._active_csi_serial.write(b"CHALLENGE_BEEP:1\n")
-            except Exception:
-                pass
+        if not self._active_csi_serial or not hasattr(self._active_csi_serial, "write"):
+            return False
+        try:
+            self._active_csi_serial.write(b"CHALLENGE_BEEP:1\n")
+            return True
+        except Exception as e:
+            logger.debug(f"[ECOSYSTEM] 串口作动写入失败: {e}")
+            return False
 
     def _on_challenge_intercepted(self, details: str):
         """阶段 2：质询窗口内老人主动微动或按键应答，成功拦截潜在误报"""

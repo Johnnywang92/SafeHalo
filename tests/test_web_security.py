@@ -298,6 +298,81 @@ class TestWebSecurity(unittest.TestCase):
         for path in ("/api/test_push", "/api/logs/clear", "/api/set_mode", "/api/users/create"):
             self.assertEqual(self.req("POST", path, {}, headers=self.bearer(fam))[0], 403, path)
 
+    def test_actuation_endpoints_require_successful_callback(self):
+        token = self.admin_token()
+        headers = self.bearer(token)
+        original_device = SafeHaloWebHandler.on_device_command
+        original_sensor = SafeHaloWebHandler.on_sensor_actuate
+        self.addCleanup(setattr, SafeHaloWebHandler, "on_device_command", original_device)
+        self.addCleanup(setattr, SafeHaloWebHandler, "on_sensor_actuate", original_sensor)
+
+        cases = (
+            ("/api/devices/command", "on_device_command", {"command": "BURST_RATE:100"}),
+            ("/api/sensors/actuate", "on_sensor_actuate", {"device_id": "speaker_living", "command": "CHALLENGE_BEEP:1"}),
+        )
+        for path, attr, payload in cases:
+            status, body, _ = self.req("POST", path, {**payload, "command": "rm -rf /"}, headers=headers)
+            self.assertEqual(status, 400, path)
+            self.assertFalse(body["success"])
+
+            setattr(SafeHaloWebHandler, attr, None)
+            status, body, _ = self.req("POST", path, payload, headers=headers)
+            self.assertEqual(status, 503, path)
+            self.assertFalse(body["success"])
+
+            setattr(SafeHaloWebHandler, attr, lambda *_: False)
+            status, body, _ = self.req("POST", path, payload, headers=headers)
+            self.assertEqual(status, 503, path)
+            self.assertFalse(body["success"])
+
+            def fail(*_):
+                raise OSError("serial disconnected")
+
+            setattr(SafeHaloWebHandler, attr, fail)
+            status, body, _ = self.req("POST", path, payload, headers=headers)
+            self.assertEqual(status, 503, path)
+            self.assertFalse(body["success"])
+
+            setattr(SafeHaloWebHandler, attr, lambda *_: True)
+            status, body, _ = self.req("POST", path, payload, headers=headers)
+            self.assertEqual(status, 200, path)
+            self.assertTrue(body["success"])
+            self.assertEqual(body["status"], "sent")
+
+    def test_actuation_callbacks_report_serial_write_result(self):
+        import io
+        from safehalo_service import SafeHaloSupervisor
+
+        supervisor = SafeHaloSupervisor.__new__(SafeHaloSupervisor)
+        old_rate = web_portal.shared_system_state.get("sample_rate")
+        self.addCleanup(web_portal.shared_system_state.__setitem__, "sample_rate", old_rate)
+
+        supervisor._active_csi_serial = None
+        self.assertFalse(supervisor._on_request_burst_rate(100))
+        self.assertFalse(supervisor._on_web_device_command("csi_probe_0", "BURST_RATE:100"))
+        self.assertFalse(supervisor._on_speaker_actuate("speaker_living", "CHALLENGE_BEEP:1"))
+
+        serial = io.BytesIO()
+        supervisor._active_csi_serial = serial
+        self.assertTrue(supervisor._on_request_burst_rate(100))
+        self.assertEqual(serial.getvalue(), b"BURST_RATE:100\n")
+
+        serial.seek(0)
+        serial.truncate(0)
+        self.assertTrue(supervisor._on_speaker_actuate("speaker_living", "CHALLENGE_BEEP:1"))
+        self.assertEqual(serial.getvalue(), b"CHALLENGE_BEEP:1\n")
+
+        class BrokenSerial:
+            def write(self, _):
+                raise OSError("serial disconnected")
+
+        supervisor._active_csi_serial = BrokenSerial()
+        old_rate = web_portal.shared_system_state["sample_rate"]
+        self.assertFalse(supervisor._on_request_burst_rate(50))
+        self.assertEqual(web_portal.shared_system_state["sample_rate"], old_rate)
+        self.assertFalse(supervisor._on_web_device_command("csi_probe_0", "STATUS"))
+        self.assertFalse(supervisor._on_speaker_actuate("speaker_living", "CHALLENGE_BEEP:1"))
+
     def test_secure_cookie_flag(self):
         SafeHaloWebHandler.cookie_secure = True
         status, _, headers = self.login("admin", "admin123")

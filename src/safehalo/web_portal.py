@@ -26,6 +26,16 @@ from .sensor_fusion_ecosystem import SensorFusionEcosystem, SensorType, LinkageA
 
 MAX_POST_BODY_BYTES = 65536
 
+
+def _is_command_allowed(cmd: str) -> bool:
+    if cmd.startswith("BURST_RATE:"):
+        return cmd[11:] in ("20", "30", "50", "100")
+    if cmd.startswith("CHALLENGE_BEEP:"):
+        return cmd[15:] in ("0", "1")
+    if cmd.startswith("CHALLENGE_VOICE:") or cmd.startswith("PLAY_TTS:"):
+        return True
+    return cmd in ("PING", "REBOOT", "STATUS", "ALARM_SIREN")
+
 # 全局摆放自适应协调器与阶段 2 试点/事件管理实例
 placement_adapter = PlacementAdapter()
 pilot_manager = PilotHouseholdManager()
@@ -927,28 +937,27 @@ class SafeHaloWebHandler(http.server.BaseHTTPRequestHandler):
                 return
             cmd = str(data.get("command", "")).strip()
             dev_id = str(data.get("device_id", "csi_probe_0")).strip()
-            allowed = False
-            if cmd.startswith("BURST_RATE:"):
-                allowed = cmd[11:] in ("20", "30", "50", "100")
-            elif cmd.startswith("CHALLENGE_BEEP:"):
-                allowed = cmd[15:] in ("0", "1")
-            elif cmd.startswith("CHALLENGE_VOICE:") or cmd.startswith("PLAY_TTS:"):
-                allowed = True
-            elif cmd in ("PING", "REBOOT", "STATUS", "ALARM_SIREN"):
-                allowed = True
-
-            if not allowed:
+            if not _is_command_allowed(cmd):
                 self._send_json(400, {"success": False, "message": "Command not permitted in whitelist"})
                 return
 
-            if hasattr(SafeHaloWebHandler, "on_device_command") and SafeHaloWebHandler.on_device_command:
-                try:
-                    SafeHaloWebHandler.on_device_command(dev_id, cmd)
-                except Exception as e:
-                    logger.warning(f"[ACTUATION] 设备指令回调异常: {e}")
+            callback = getattr(SafeHaloWebHandler, "on_device_command", None)
+            if not callback:
+                self._send_json(503, {"success": False, "message": "设备作动回调未接线"})
+                return
+            try:
+                sent = callback(dev_id, cmd)
+            except Exception as e:
+                logger.warning(f"[ACTUATION] 设备指令回调异常: {e}")
+                self._send_json(503, {"success": False, "message": "设备指令执行异常"})
+                return
+            if not sent:
+                self._send_json(503, {"success": False, "message": "设备离线或指令写入失败"})
+                return
             logger.info(f"[ACTUATION] 管理员 [{sess['username']}] 向设备 [{dev_id}] 下发白名单指令: {cmd}")
             self._send_json(200, {
                 "success": True,
+                "status": "sent",
                 "message": "指令已成功下发",
                 "device_id": dev_id,
                 "command": cmd,
@@ -981,13 +990,24 @@ class SafeHaloWebHandler(http.server.BaseHTTPRequestHandler):
             if not cmd:
                 self._send_json(400, {"success": False, "message": "Missing command"})
                 return
-            if hasattr(SafeHaloWebHandler, "on_sensor_actuate") and SafeHaloWebHandler.on_sensor_actuate:
-                try:
-                    SafeHaloWebHandler.on_sensor_actuate(device_id, cmd)
-                except Exception as e:
-                    logger.warning(f"[ACTUATE] 作动回调异常: {e}")
+            if not _is_command_allowed(cmd):
+                self._send_json(400, {"success": False, "message": "Command not permitted in whitelist"})
+                return
+            callback = getattr(SafeHaloWebHandler, "on_sensor_actuate", None)
+            if not callback:
+                self._send_json(503, {"success": False, "message": "传感器作动回调未接线"})
+                return
+            try:
+                sent = callback(device_id, cmd)
+            except Exception as e:
+                logger.warning(f"[ACTUATE] 作动回调异常: {e}")
+                self._send_json(503, {"success": False, "message": "传感器作动执行异常"})
+                return
+            if not sent:
+                self._send_json(503, {"success": False, "message": "传感器离线或作动写入失败"})
+                return
             logger.info(f"[ACTUATE] 管理员向生态设备 [{device_id}] 发送作动指令: {cmd}")
-            self._send_json(200, {"success": True, "message": f"作动指令已下发: {cmd}", "device_id": device_id, "command": cmd})
+            self._send_json(200, {"success": True, "status": "sent", "message": f"作动指令已下发: {cmd}", "device_id": device_id, "command": cmd})
             return
 
         self.send_error(404, "Not Found")
