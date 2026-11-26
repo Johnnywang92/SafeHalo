@@ -111,8 +111,8 @@ run_quickstart() {
     if [ -n "$daemon_bin" ]; then
         echo -e "${GREEN}✅ 选用超轻量 Rust 守护引擎: $daemon_bin${NC}"
         if [ -n "$port" ]; then
-            echo -e "🔌 自动检测到射频探针串口: ${BOLD}$port${NC} (波特率 921600)"
-            serial_arg="--serial $port --baud 921600"
+            echo -e "🔌 自动检测到射频探针串口: ${BOLD}$port${NC} (波特率 921600，自动绑定家庭主路由 BSSID)"
+            serial_arg="--serial $port --baud 921600 --home-mac auto"
         else
             echo -e "${YELLOW}ℹ️ 未检测到已插入的物理串口探针，将以仿真重放模式启动控制台...${NC}"
             serial_arg="--replay experiments/rust-daemon/fixtures/generated/main.txt --replay-rate 30"

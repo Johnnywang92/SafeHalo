@@ -5,8 +5,28 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+const MAX_ACTIVE_HTTP_CONNS: usize = 32;
+const MAX_ACTIVE_SSE_STREAMS: usize = 8;
+static ACTIVE_HTTP_CONNS: AtomicUsize = AtomicUsize::new(0);
+static ACTIVE_SSE_STREAMS: AtomicUsize = AtomicUsize::new(0);
+
+struct ConnGuard;
+impl Drop for ConnGuard {
+    fn drop(&mut self) {
+        ACTIVE_HTTP_CONNS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+struct SseGuard;
+impl Drop for SseGuard {
+    fn drop(&mut self) {
+        ACTIVE_SSE_STREAMS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 use crate::auth::{AuthManager, Session};
 use crate::json;
@@ -343,17 +363,28 @@ pub fn serve(addr: String, bus: Arc<Bus>, auth: Arc<AuthManager>, notifier: Noti
     };
     eprintln!("[http] listening on http://{}/", addr);
     let limiter = Arc::new(RateLimiter::new());
-    for stream in listener.incoming() {
-        if let Ok(st) = stream {
-            let bus = Arc::clone(&bus);
-            let auth = Arc::clone(&auth);
-            let notifier = notifier.clone();
-            let cfg = cfg.clone();
-            let limiter = Arc::clone(&limiter);
-            let _ = std::thread::Builder::new()
-                .stack_size(256 * 1024)
-                .name("http".into())
-                .spawn(move || handle_conn(st, bus, auth, notifier, cfg, limiter));
+    for mut st in listener.incoming().flatten() {
+        let cur = ACTIVE_HTTP_CONNS.fetch_add(1, Ordering::SeqCst);
+        if cur >= MAX_ACTIVE_HTTP_CONNS {
+            ACTIVE_HTTP_CONNS.fetch_sub(1, Ordering::SeqCst);
+            send_json(&mut st, 503, "{\"error\":\"ServiceUnavailable\",\"message\":\"连接数已达上限，请稍后重试\"}");
+            continue;
+        }
+        let bus = Arc::clone(&bus);
+        let auth = Arc::clone(&auth);
+        let notifier = notifier.clone();
+        let cfg = cfg.clone();
+        let limiter = Arc::clone(&limiter);
+        if std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .name("http".into())
+            .spawn(move || {
+                let _guard = ConnGuard;
+                handle_conn(st, bus, auth, notifier, cfg, limiter);
+            })
+            .is_err()
+        {
+            ACTIVE_HTTP_CONNS.fetch_sub(1, Ordering::SeqCst);
         }
     }
 }
@@ -387,13 +418,16 @@ fn handle_conn(
             && req.method == "POST"
             && !matches!(
                 req.path.as_str(),
-                "/api/incidents/feedback" | "/api/challenge/acknowledge" | "/api/set_mode"
+                "/api/incidents/feedback"
+                    | "/api/challenge/acknowledge"
+                    | "/api/set_mode"
+                    | "/api/sensors/event"
             )
         {
             send_json(
                 &mut st,
                 403,
-                "{\"error\":\"Forbidden\",\"message\":\"机器 token 仅支持状态读取、事件反馈/应答与模式切换\"}",
+                "{\"error\":\"Forbidden\",\"message\":\"机器 token 仅支持状态读取、传感器上报、事件反馈/应答与模式切换\"}",
             );
             return;
         }
@@ -419,6 +453,13 @@ fn handle_conn(
             send_json(&mut st, 401, "{\"error\":\"unauthorized\"}");
             return;
         }
+        let cur_sse = ACTIVE_SSE_STREAMS.fetch_add(1, Ordering::SeqCst);
+        if cur_sse >= MAX_ACTIVE_SSE_STREAMS {
+            ACTIVE_SSE_STREAMS.fetch_sub(1, Ordering::SeqCst);
+            send_json(&mut st, 429, "{\"error\":\"too_many_streams\"}");
+            return;
+        }
+        let _sse_guard = SseGuard;
         stream_events(&mut st, &bus, &q);
         return;
     }
@@ -609,6 +650,7 @@ fn handle_get(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_post(
     st: &mut TcpStream,
     req: &Req,
@@ -716,18 +758,26 @@ fn handle_post(
                 let s = bus.lock();
                 s.placement.clone()
             };
-            p.room_type = jstr(&data, "room_type");
-            p.room_name = jstr(&data, "room_name");
-            p.mount_height = jstr(&data, "mount_height");
+            let rt = jstr(&data, "room_type");
+            if !rt.is_empty() { p.room_type = rt; }
+            let rn = jstr(&data, "room_name");
+            if !rn.is_empty() { p.room_name = rn; }
+            let mh = jstr(&data, "mount_height");
+            if !mh.is_empty() { p.mount_height = mh; }
             p.room_area_sqm = data.get("room_area_sqm").and_then(|x| x.as_f64()).unwrap_or(p.room_area_sqm);
             p.has_pets = jbool(&data, "has_pets", p.has_pets);
             p.has_water_splash = jbool(&data, "has_water_splash", p.has_water_splash);
-            p.care_nickname = jstr(&data, "care_nickname");
-            p.living_arrangement = jstr(&data, "living_arrangement");
-            p.mobility_pace = jstr(&data, "mobility_pace");
-            p.wake_habit = jstr(&data, "wake_habit");
-            p.enable_gentle_challenge = jbool(&data, "enable_gentle_challenge", true);
+            let cn = jstr(&data, "care_nickname");
+            if !cn.is_empty() { p.care_nickname = cn; }
+            let la = jstr(&data, "living_arrangement");
+            if !la.is_empty() { p.living_arrangement = la; }
+            let mp = jstr(&data, "mobility_pace");
+            if !mp.is_empty() { p.mobility_pace = mp; }
+            let wh = jstr(&data, "wake_habit");
+            if !wh.is_empty() { p.wake_habit = wh; }
+            p.enable_gentle_challenge = jbool(&data, "enable_gentle_challenge", p.enable_gentle_challenge);
             p.is_configured = true;
+            p.recompute_tuned();
             let token = jstr(&data, "pushplus_token");
             let webhook = jstr(&data, "webhook_url");
             let bark = jstr(&data, "bark_key");
@@ -754,6 +804,7 @@ fn handle_post(
             {
                 let mut s = bus.lock();
                 s.placement = p;
+                s.control.recalibrate = true;
             }
             send_json(
                 st,
@@ -904,13 +955,17 @@ fn handle_post(
                     return;
                 }
                 let token = jstr(&data, "pushplus_token");
+                let serverchan = jstr(&data, "serverchan_key");
                 let webhook = jstr(&data, "webhook_url");
                 let sms = jstr(&data, "sms_webhook_url");
                 let bark = jstr(&data, "bark_key");
-                if !token.is_empty() || !webhook.is_empty() || !sms.is_empty() || !bark.is_empty() {
+                if !token.is_empty() || !serverchan.is_empty() || !webhook.is_empty() || !sms.is_empty() || !bark.is_empty() {
                     notifier.update(|c| {
                         if !token.is_empty() {
                             c.pushplus_token = token.clone();
+                        }
+                        if !serverchan.is_empty() {
+                            c.serverchan_key = serverchan.clone();
                         }
                         if !webhook.is_empty() {
                             c.webhook_url = webhook.clone();
@@ -937,6 +992,43 @@ fn handle_post(
                 send_json(st, 200, &ok_msg("测试告警已发送并保存配置，请检查微信通知！"));
             }
             Some(_) => send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"权限不足，仅管理员可触发测试推送\"}"),
+            None => send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"未登录或登录已过期，请重新登录\"}"),
+        },
+        "/api/notifier/config" => match auth_ctx(req, q, auth, &cfg.token) {
+            Some(c) if c.role() == "admin" => {
+                notifier.update(|cfg_mut| {
+                    if data.get("pushplus_token").is_some() {
+                        cfg_mut.pushplus_token = jstr(&data, "pushplus_token").trim().to_string();
+                    }
+                    if data.get("serverchan_key").is_some() {
+                        cfg_mut.serverchan_key = jstr(&data, "serverchan_key").trim().to_string();
+                    }
+                    if data.get("webhook_url").is_some() {
+                        cfg_mut.webhook_url = jstr(&data, "webhook_url").trim().to_string();
+                    }
+                    if data.get("ha_webhook_url").is_some() {
+                        cfg_mut.ha_webhook_url = jstr(&data, "ha_webhook_url").trim().to_string();
+                    }
+                    if data.get("sms_webhook_url").is_some() {
+                        cfg_mut.sms_webhook_url = jstr(&data, "sms_webhook_url").trim().to_string();
+                    }
+                    if data.get("bark_key").is_some() {
+                        cfg_mut.bark_key = jstr(&data, "bark_key").trim().to_string();
+                    }
+                });
+                {
+                    let mut s = bus.lock();
+                    s.events.push(
+                        "NOTIFIER_CONFIG",
+                        "INFO",
+                        &format!("管理员 [{}] 更新了告警通知渠道配置", c.username()),
+                        "{}",
+                    );
+                }
+                bus.cv.notify_all();
+                send_json(st, 200, &ok_msg("告警通知配置已成功保存！"));
+            }
+            Some(_) => send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"权限不足，仅管理员可修改通知配置\"}"),
             None => send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"未登录或登录已过期，请重新登录\"}"),
         },
         "/api/trigger_inspect" => match auth_ctx(req, q, auth, &cfg.token) {
@@ -1023,7 +1115,7 @@ fn handle_post(
         },
         "/api/devices/command" => match auth_ctx(req, q, auth, &cfg.token) {
             Some(c) if c.role() == "admin" => {
-                let cmd = jstr(&data, "command");
+                let cmd = jstr(&data, "command").trim().to_string();
                 if !crate::serial::is_command_allowed(&cmd) {
                     send_json(st, 400, "{\"success\":false,\"message\":\"Command not permitted in whitelist\"}");
                     return;
@@ -1034,6 +1126,9 @@ fn handle_post(
                 };
                 {
                     let mut s = bus.lock();
+                    if s.control.pending_commands.len() < 32 {
+                        s.control.pending_commands.push(format!("{}\n", cmd));
+                    }
                     s.events.push(
                         "DEVICE_COMMAND",
                         "INFO",
@@ -1056,27 +1151,85 @@ fn handle_post(
             Some(_) => send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"权限不足，仅管理员可向硬件设备下发指令\"}"),
             None => send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"未登录或登录已过期，请重新登录\"}"),
         },
+        "/api/sensors/actuate" => match auth_ctx(req, q, auth, &cfg.token) {
+            Some(c) if c.role() == "admin" => {
+                let cmd = jstr(&data, "command").trim().to_string();
+                let dev_id = jstr(&data, "device_id").trim().to_string();
+                if cmd.is_empty() {
+                    send_json(st, 400, "{\"success\":false,\"message\":\"Missing command\"}");
+                    return;
+                }
+                {
+                    let mut s = bus.lock();
+                    if crate::serial::is_command_allowed(&cmd) && s.control.pending_commands.len() < 32 {
+                        s.control.pending_commands.push(format!("{}\n", cmd));
+                    }
+                    s.events.push(
+                        "SENSOR_ACTUATE",
+                        "INFO",
+                        &format!("管理员 [{}] 向生态设备 [{}] 发送作动指令: {}", c.username(), dev_id, cmd),
+                        "{}",
+                    );
+                }
+                bus.cv.notify_all();
+                send_json(
+                    st,
+                    200,
+                    &format!(
+                        "{{\"success\":true,\"message\":\"{}\",\"device_id\":\"{}\",\"command\":\"{}\"}}",
+                        json::escape(&format!("作动指令已下发: {}", cmd)),
+                        json::escape(&dev_id),
+                        json::escape(&cmd)
+                    ),
+                );
+            }
+            Some(_) => send_json(st, 403, "{\"error\":\"Forbidden\",\"message\":\"权限不足，仅管理员可执行作动测试\"}"),
+            None => send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"未登录或登录已过期，请重新登录\"}"),
+        },
         "/api/sensors/event" => {
-            let device_id = jstr(&data, "device_id");
+            if !cfg.token.is_empty() && auth_ctx(req, q, auth, &cfg.token).is_none() {
+                send_json(st, 401, "{\"error\":\"Unauthorized\",\"message\":\"传感器事件上报需要有效登录态或 api_token\"}");
+                return;
+            }
+            let ip = st.peer_addr().map(|a| a.ip().to_string()).unwrap_or_else(|_| "unknown".into());
+            if !limiter.allow(&format!("sensor_ev:{}", ip), 30, 10.0) {
+                send_json(st, 429, "{\"success\":false,\"message\":\"传感器事件上报过于频繁，请稍后再试\"}");
+                return;
+            }
+            let device_id = jstr(&data, "device_id").trim().to_string();
             let event = {
                 let e = jstr(&data, "event");
                 if e.is_empty() { jstr(&data, "state") } else { e }
-            };
+            }
+            .trim()
+            .to_string();
             if device_id.is_empty() || event.is_empty() {
                 send_json(st, 400, "{\"success\":false,\"message\":\"Missing device_id or event\"}");
                 return;
             }
-            let room = {
-                let r = jstr(&data, "room");
-                if r.is_empty() { "客厅".into() } else { r }
-            };
+            let ev_lower = event.to_ascii_lowercase();
+            if matches!(
+                ev_lower.as_str(),
+                "voice_dismiss" | "dismiss" | "button_press" | "voice_help" | "help" | "sos" | "sos_pressed"
+            ) && !limiter.allow(&format!("sensor_crit:{}", ip), 2, 5.0)
+            {
+                send_json(st, 429, "{\"success\":false,\"message\":\"关键语音/SOS操作过于频繁，请稍后再试\"}");
+                return;
+            }
 
-            let now = timefmt::now_epoch() as f64;
+            let now = timefmt::now_epoch();
             let mut action = "none";
             let mut message = "事件已接收并记录".to_string();
+            let mut pending_notice: Option<Notice> = None;
 
             {
                 let mut s = bus.lock();
+                let room = {
+                    let r = jstr(&data, "room");
+                    if r.is_empty() { s.placement.room_name.clone() } else { r }
+                };
+                let household = s.household_id.clone();
+
                 // 1. 查找或更新设备
                 let dev = crate::serial::DeviceInfo {
                     id: device_id.clone(),
@@ -1093,48 +1246,98 @@ fn handle_post(
                 };
                 s.devices.register(dev);
 
-                // 2. 联动逻辑判定
-                let ev_lower = event.to_ascii_lowercase();
-                if ev_lower == "voice_dismiss" || ev_lower == "dismiss" {
+                // 2. 联动逻辑判定 + 真实告警与串口指令下发
+                if ev_lower == "voice_dismiss" || ev_lower == "dismiss" || ev_lower == "button_press" {
+                    s.control.ack_safe = true;
                     if s.state == "FALL_SUSPECT" {
                         s.state = "RESTING".into();
                         action = "challenge_dismissed";
                         message = "老人语音应答正常，跌倒嫌疑已成功化解".into();
                         s.events.push("CHALLENGE_DISMISSED", "INFO", &format!("[{}] {}", device_id, message), "{}");
+                    } else {
+                        action = "challenge_dismissed";
+                        message = "已收到语音/按键平安应答".into();
                     }
                 } else if ev_lower == "voice_help" || ev_lower == "help" {
                     s.state = "FALL_CONFIRMED".into();
                     s.fall_alarms += 1;
                     action = "fall_escalated";
                     message = "老人语音呼救（喊救命），秒级升级确诊跌倒！".into();
-                    s.events.push("FALL_ESCALATED", "ALARM", &format!("[{}] {}", device_id, message), "{}");
+                    let inc = s.incidents.record(&room, "FALL_ALARM", 1.0, 0.0, &message, &household);
+                    s.events.push("FALL_ESCALATED", "CRITICAL", &format!("[{}] {}", device_id, message), "{}");
+                    pending_notice = Some(Notice::Fall {
+                        room,
+                        confidence: 1.0,
+                        details: message.clone(),
+                        bpm: 0.0,
+                        event_id: inc.event_id,
+                        household,
+                    });
                 } else if ev_lower == "sos_pressed" || ev_lower == "sos" {
                     s.state = "FALL_CONFIRMED".into();
                     s.fall_alarms += 1;
                     action = "sos_emergency_alert";
                     message = format!("老人按下紧急 SOS 求救按钮！位置: {}", room);
-                    s.events.push("SOS_EMERGENCY", "ALARM", &format!("[{}] {}", device_id, message), "{}");
+                    let inc = s.incidents.record(&room, "FALL_ALARM", 1.0, 0.0, &message, &household);
+                    s.events.push("SOS_EMERGENCY", "CRITICAL", &format!("[{}] {}", device_id, message), "{}");
+                    pending_notice = Some(Notice::Fall {
+                        room,
+                        confidence: 1.0,
+                        details: message.clone(),
+                        bpm: 0.0,
+                        event_id: inc.event_id,
+                        household,
+                    });
                 } else if ev_lower.contains("open") {
-                    if s.security_mode == "ARMED_AWAY" {
+                    let mode_norm = crate::security::SecurityMode::parse(&s.security_mode);
+                    if mode_norm == crate::security::SecurityMode::ArmedAway {
                         action = "perimeter_breach_alert";
                         message = format!("离家布防模式下门磁触发！外围防线突破: {}", device_id);
+                        s.incidents.record(&room, "SECURITY_INTRUSION", 0.95, 0.0, &message, &household);
                         s.events.push("SECURITY_INTRUSION", "ALARM", &message, "{}");
-                    } else if s.security_mode == "CURFEW" {
+                        pending_notice = Some(Notice::Generic {
+                            title: "🛡️【防盗告警】外围门磁防线突破！".into(),
+                            content: message.clone(),
+                            room,
+                            ha_event: "security_intrusion".into(),
+                        });
+                    } else if mode_norm == crate::security::SecurityMode::Curfew {
                         action = "curfew_wandering_alert";
                         message = format!("老人防走失模式告警：深夜外门推开: {}", device_id);
+                        s.incidents.record(&room, "SECURITY_INTRUSION", 0.95, 0.0, &message, &household);
                         s.events.push("CURFEW_WANDERING", "ALARM", &message, "{}");
+                        pending_notice = Some(Notice::Generic {
+                            title: "⚠️【防走失告警】深夜外门被推开！".into(),
+                            content: message.clone(),
+                            room,
+                            ha_event: "curfew_wandering".into(),
+                        });
                     }
                 } else if ev_lower.contains("motion") {
-                    if s.security_mode == "ARMED_AWAY" {
+                    let mode_norm = crate::security::SecurityMode::parse(&s.security_mode);
+                    if mode_norm == crate::security::SecurityMode::ArmedAway {
                         action = "confirmed_intrusion_alert";
                         message = format!("离家布防模式下 PIR 人体红外触发！确认入侵: {}", room);
+                        s.incidents.record(&room, "SECURITY_INTRUSION", 0.98, 0.0, &message, &household);
                         s.events.push("SECURITY_INTRUSION", "ALARM", &message, "{}");
+                        pending_notice = Some(Notice::Generic {
+                            title: "🛡️【防盗告警】PIR 确认非法人员入侵！".into(),
+                            content: message.clone(),
+                            room,
+                            ha_event: "security_intrusion".into(),
+                        });
                     } else {
                         action = "burst_rate_triggered";
                         message = "PIR 动能联动触发 CSI 探针提频采样".into();
+                        if s.control.pending_commands.len() < 32 {
+                            s.control.pending_commands.push("BURST_RATE:50\n".into());
+                        }
                         s.events.push("BURST_RATE_TRIGGER", "INFO", &format!("[{}] {}", device_id, message), "{}");
                     }
                 }
+            }
+            if let Some(notice) = pending_notice {
+                notifier.send(notice);
             }
             bus.cv.notify_all();
 
@@ -1158,7 +1361,7 @@ fn handle_post(
                     send_json(st, 400, "{\"success\":false,\"message\":\"Missing device_id\"}");
                     return;
                 }
-                let now = timefmt::now_epoch() as f64;
+                let now = timefmt::now_epoch();
                 {
                     let mut s = bus.lock();
                     let dev = crate::serial::DeviceInfo {
@@ -1292,10 +1495,8 @@ fn stream_events(st: &mut TcpStream, bus: &Arc<Bus>, q: &HashMap<String, String>
                 .wait_timeout(guard, Duration::from_secs(15))
                 .unwrap_or_else(|e| e.into_inner());
             guard = g;
-            if timeout.timed_out() {
-                if st.write_all(b": ping\n\n").is_err() {
-                    return;
-                }
+            if timeout.timed_out() && st.write_all(b": ping\n\n").is_err() {
+                return;
             }
             continue;
         }

@@ -65,6 +65,128 @@ pub struct TunedParams {
 }
 
 impl TunedParams {
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_for_full(
+        room_type: &str,
+        mount_height: &str,
+        mobility_pace: &str,
+        living_arrangement: &str,
+        has_pets: bool,
+        has_water_splash: bool,
+        enable_gentle_challenge: bool,
+        care_nickname: &str,
+        room_name: &str,
+    ) -> Self {
+        let r_type = room_type.trim().to_ascii_uppercase();
+        let m_height = mount_height.trim().to_ascii_uppercase();
+        let pace = mobility_pace.trim().to_ascii_uppercase();
+        let living = living_arrangement.trim().to_ascii_uppercase();
+        let nickname = if care_nickname.trim().is_empty() { "家里长辈" } else { care_nickname.trim() };
+        let r_name = if room_name.trim().is_empty() { "客厅" } else { room_name.trim() };
+
+        let mut spike: f64;
+        let mut still: f64;
+        let mut pet_spr: f64 = if has_pets { 0.45 } else { 0.30 };
+        let mut floor_z: f64 = 0.38;
+        let mut hampel: usize = 5;
+        let mut water_damping = has_water_splash;
+        let mut metal_damping = false;
+        let mut desc_parts: Vec<String> = Vec::new();
+        let mut friendly_parts: Vec<String> = Vec::new();
+
+        match r_type.as_str() {
+            "BATHROOM" => {
+                spike = 1.15;
+                still = 3.0;
+                floor_z = 0.35;
+                hampel = 7;
+                water_damping = true;
+                desc_parts.push("【卫生间极速防滑响应】: 跌倒冲击阈值调至 1.15，倒地静止 3 秒快速响应，启用花洒水流微动抑制".into());
+                friendly_parts.push("卫浴防滑高敏关照与花洒水流免误扰".into());
+            }
+            "BEDROOM" => {
+                spike = 1.40;
+                still = 4.5;
+                floor_z = 0.30;
+                hampel = 5;
+                desc_parts.push("【卧室床铺安全避让】: 地面高度阈值收紧至 0.30m (避免床上坐卧误判)，强化夜间起夜灵敏度".into());
+                friendly_parts.push("床边起夜贴心保护（床上翻身坐卧不误报）".into());
+            }
+            "KITCHEN" => {
+                spike = 1.85;
+                still = 3.8;
+                metal_damping = true;
+                desc_parts.push("【厨房金属抗反弹】: 激活冰箱与油烟机多径共振吸收，平抑高频谐振".into());
+                friendly_parts.push("厨房家电电磁反弹过滤".into());
+            }
+            "CORRIDOR" => {
+                spike = 1.60;
+                still = 3.5;
+                desc_parts.push("【走廊线性通道】: 快速响应直行路径变化".into());
+                friendly_parts.push("走廊过道快速通行感知".into());
+            }
+            _ => {
+                spike = 2.10;
+                still = 4.0;
+                hampel = 7;
+                desc_parts.push("【客厅大开间多径适应】: 扩大时域滤波抗窗帘抖动，优化多人走动场景".into());
+                friendly_parts.push("客厅宽敞空间与窗帘微动防误扰".into());
+            }
+        }
+
+        if m_height == "LOW" {
+            spike *= 1.15;
+            desc_parts.push("矮柜低位安装: 补偿地面多径反射放大效应".into());
+        } else if m_height == "HIGH_CEILING" || m_height == "HIGH_WALL" {
+            spike *= 0.95;
+            if floor_z < 0.40 {
+                floor_z = 0.40;
+            }
+            desc_parts.push("吸顶高位安装: 增强俯视垂向下坠特征".into());
+        }
+
+        if pace == "STEADY_SLOW" {
+            spike *= 0.85;
+            if still < 4.5 {
+                still = 4.5;
+            }
+            desc_parts.push("稳健慢行模式: 下调冲击阈值 15% 以捕捉扶墙/顺床沿缓慢滑落，并留足缓慢起身时间".into());
+            friendly_parts.push("开启「稳健慢行」软跌倒保护".into());
+        }
+
+        if living == "COHABIT" {
+            if hampel < 7 {
+                hampel = 7;
+            }
+            desc_parts.push("多人同住场景: 增强背景活动平滑".into());
+            friendly_parts.push("双人/多人同住起居适配".into());
+        }
+
+        if has_pets {
+            pet_spr = 0.50;
+            desc_parts.push("家有猫狗: 提升 SPR 载波参与度过滤级别至 50%".into());
+            friendly_parts.push("猫狗地面走动免打扰".into());
+        }
+
+        if enable_gentle_challenge {
+            friendly_parts.push("疑似磕碰先发轻柔提示音（挥手即可取消）".into());
+        }
+
+        let desc = desc_parts.join(" | ");
+        let friendly = format!("✨ 已为【{}】定制【{}】守护方案：{}", nickname, r_name, friendly_parts.join("、"));
+        TunedParams {
+            fall_spike_threshold: ((spike * 100.0).round()) / 100.0,
+            fall_stillness_seconds: ((still * 10.0).round()) / 10.0,
+            pet_spr_threshold: ((pet_spr * 100.0).round()) / 100.0,
+            radar_floor_height_thresh: ((floor_z * 100.0).round()) / 100.0,
+            hampel_window_size: hampel,
+            water_flow_damping: water_damping,
+            metal_multipath_damping: metal_damping,
+            description: desc,
+            friendly_summary: friendly,
+        }
+    }
+
     pub fn compute_for(
         room_type: &str,
         mount_height: &str,
@@ -73,31 +195,17 @@ impl TunedParams {
         care_nickname: &str,
         room_name: &str,
     ) -> Self {
-        let spike = if mobility_pace == "STEADY_SLOW" { 1.8 } else { 2.0 };
-        let still = if mobility_pace == "STEADY_SLOW" { 6.0 } else { 5.0 };
-        let desc = format!(
-            "按【{} / {}】优化：冲击阈值 {:.1}，静止确诊 {:.0}s，宠物门限 0.35，{}水流阻尼",
+        Self::compute_for_full(
             room_type,
             mount_height,
-            spike,
-            still,
-            if has_water_splash { "启用" } else { "关闭" }
-        );
-        let friendly = format!(
-            "已为【{}】定制【{}】守护方案：{}",
-            care_nickname, room_name, desc
-        );
-        TunedParams {
-            fall_spike_threshold: spike,
-            fall_stillness_seconds: still,
-            pet_spr_threshold: 0.35,
-            radar_floor_height_thresh: 0.45,
-            hampel_window_size: 5,
-            water_flow_damping: has_water_splash,
-            metal_multipath_damping: false,
-            description: desc,
-            friendly_summary: friendly,
-        }
+            mobility_pace,
+            "SOLO",
+            false,
+            has_water_splash,
+            true,
+            care_nickname,
+            room_name,
+        )
     }
 
     pub fn to_json(&self) -> String {
@@ -181,14 +289,7 @@ impl Placement {
                 p.is_configured = gb("is_configured", p.is_configured);
 
                 // Compute default tuned parameters based on loaded config
-                p.tuned = TunedParams::compute_for(
-                    &p.room_type,
-                    &p.mount_height,
-                    &p.mobility_pace,
-                    p.has_water_splash,
-                    &p.care_nickname,
-                    &p.room_name,
-                );
+                p.recompute_tuned();
 
                 // Load any persisted tuned parameter overrides
                 if let Some(t_obj) = v.get("tuned_parameters") {
@@ -207,16 +308,35 @@ impl Placement {
                     if let Some(w) = t_obj.get("water_flow_damping").and_then(|x| x.as_bool()) {
                         p.tuned.water_flow_damping = w;
                     }
+                    if let Some(m) = t_obj.get("metal_multipath_damping").and_then(|x| x.as_bool()) {
+                        p.tuned.metal_multipath_damping = m;
+                    }
                 }
             }
         }
-        if !room_override.is_empty() {
+        if !room_override.is_empty() && (!p.is_configured || room_override != "客厅") {
             p.room_name = room_override.to_string();
         }
         if let Some(c) = challenge_override {
-            p.enable_gentle_challenge = c;
+            if !p.is_configured {
+                p.enable_gentle_challenge = c;
+            }
         }
         p
+    }
+
+    pub fn recompute_tuned(&mut self) {
+        self.tuned = TunedParams::compute_for_full(
+            &self.room_type,
+            &self.mount_height,
+            &self.mobility_pace,
+            &self.living_arrangement,
+            self.has_pets,
+            self.has_water_splash,
+            self.enable_gentle_challenge,
+            &self.care_nickname,
+            &self.room_name,
+        );
     }
 
     pub fn apply_false_alarm_feedback(&mut self, category: &str) -> String {
@@ -285,7 +405,15 @@ impl Placement {
             self.is_configured,
             self.tuned.to_json()
         );
-        let _ = fs::write(&path, text);
+        let tmp = path.with_extension("json.tmp");
+        if fs::write(&tmp, text).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+            }
+            let _ = fs::rename(&tmp, &path);
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -320,6 +448,8 @@ impl Placement {
 pub struct Control {
     pub trigger_inspect: bool,
     pub ack_safe: bool,
+    pub recalibrate: bool,
+    pub pending_commands: Vec<String>,
 }
 
 pub struct Shared {

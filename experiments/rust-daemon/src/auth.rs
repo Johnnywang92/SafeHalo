@@ -1,5 +1,6 @@
 // Port of src/safehalo/auth_manager.py: PBKDF2-HMAC-SHA256 users.json,
 // in-memory sessions and RBAC. Keeps the on-disk format Python wrote.
+#![allow(clippy::chunks_exact_to_as_chunks, clippy::manual_is_multiple_of)]
 
 use std::collections::HashMap;
 use std::fs;
@@ -11,6 +12,7 @@ use crate::timefmt;
 
 const ITERATIONS: u32 = 100_000;
 const SESSION_SECONDS: f64 = 7.0 * 24.0 * 3600.0;
+const MAX_SESSIONS: usize = 512;
 
 // ---------------------------------------------------------------- SHA-256
 
@@ -231,7 +233,7 @@ struct AuthState {
     sessions: HashMap<String, Session>,
 }
 
-fn get_str<'a>(v: &'a json::Json, k: &str) -> String {
+fn get_str(v: &json::Json, k: &str) -> String {
     v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
 }
 
@@ -311,7 +313,16 @@ fn save_users(file: &Path, users: &[User]) -> bool {
         ));
     }
     out.push_str("}\n");
-    let ok = fs::write(file, out).is_ok();
+    let tmp = file.with_extension("json.tmp");
+    if fs::write(&tmp, out).is_err() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+    }
+    let ok = fs::rename(&tmp, file).is_ok();
     #[cfg(unix)]
     if ok {
         use std::os::unix::fs::PermissionsExt;
@@ -323,21 +334,26 @@ fn save_users(file: &Path, users: &[User]) -> bool {
 impl AuthManager {
     pub fn new(data_dir: &str) -> AuthManager {
         let file = Path::new(data_dir).join("users.json");
+        let file_existed = file.exists();
         let mut users = load_users(&file);
         if users.is_empty() {
-            let (hash, salt) = hash_password("admin123", None).unwrap();
-            users.push(User {
-                username: "admin".into(),
-                display_name: "系统管理员".into(),
-                role: "admin".into(),
-                password_hash: hash,
-                salt,
-                created_at: timefmt::now().date_time[..19].to_string(),
-                last_login: None,
-                must_change_password: true,
-            });
-            save_users(&file, &users);
-            eprintln!("[auth] created default account admin/admin123 (change it after first login)");
+            if file_existed {
+                eprintln!("[auth] warning: users.json exists but could not be parsed; refusing to enable default account");
+            } else {
+                let (hash, salt) = hash_password("admin123", None).unwrap();
+                users.push(User {
+                    username: "admin".into(),
+                    display_name: "系统管理员".into(),
+                    role: "admin".into(),
+                    password_hash: hash,
+                    salt,
+                    created_at: timefmt::now().date_time[..19].to_string(),
+                    last_login: None,
+                    must_change_password: true,
+                });
+                save_users(&file, &users);
+                eprintln!("[auth] created default account admin/admin123 (change it after first login)");
+            }
         }
         AuthManager {
             file,
@@ -353,20 +369,41 @@ impl AuthManager {
     }
 
     pub fn login(&self, username: &str, password: &str, client_ip: &str) -> Result<(String, Session), String> {
-        let mut st = self.lock();
-        let idx = match st.users.iter().position(|u| u.username == username) {
-            Some(i) => i,
+        let user_snap = {
+            let st = self.lock();
+            st.users.iter().find(|u| u.username == username).cloned()
+        };
+        let u = match user_snap {
+            Some(user) => user,
             None => {
+                // Constant-time dummy PBKDF2 outside lock to prevent user enumeration & lock contention
+                let _ = pbkdf2_sha256(password, &[0u8; 16], ITERATIONS);
                 eprintln!("[auth] login failed: unknown user [{}] from {}", username, client_ip);
                 return Err("用户名或密码错误".into());
             }
         };
-        if !verify_password(password, &st.users[idx].password_hash, &st.users[idx].salt) {
+        if !verify_password(password, &u.password_hash, &u.salt) {
             eprintln!("[auth] login failed: bad password [{}] from {}", username, client_ip);
             return Err("用户名或密码错误".into());
         }
         let token = hex_encode(&random_bytes(32));
         let now = timefmt::now_epoch();
+        let mut st = self.lock();
+        let idx = match st.users.iter().position(|x| x.username == username) {
+            Some(i) => i,
+            None => return Err("用户名或密码错误".into()),
+        };
+        st.sessions.retain(|_, s| now <= s.expires_at);
+        if st.sessions.len() >= MAX_SESSIONS {
+            if let Some(oldest_key) = st
+                .sessions
+                .iter()
+                .min_by(|a, b| a.1.created_at.partial_cmp(&b.1.created_at).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(k, _)| k.clone())
+            {
+                st.sessions.remove(&oldest_key);
+            }
+        }
         let sess = Session {
             username: st.users[idx].username.clone(),
             display_name: st.users[idx].display_name.clone(),
@@ -607,5 +644,25 @@ mod tests {
         assert_eq!(sess.role, "admin");
         assert!(auth.validate(&token).is_some());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_users_json_refuses_default_login() {
+        for (name, contents) in [("malformed", "{not json"), ("empty", "{}")] {
+            let dir = std::env::temp_dir().join(format!(
+                "safehalo_auth_corrupt_{}_{}",
+                std::process::id(),
+                name
+            ));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("users.json");
+            fs::write(&file, contents).unwrap();
+
+            let auth = AuthManager::new(dir.to_str().unwrap());
+            assert!(auth.login("admin", "admin123", "test").is_err());
+            assert_eq!(fs::read_to_string(&file).unwrap(), contents);
+            let _ = fs::remove_dir_all(&dir);
+        }
     }
 }

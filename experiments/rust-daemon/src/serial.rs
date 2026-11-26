@@ -124,6 +124,8 @@ pub struct DeviceRegistry {
     pub devices: Vec<DeviceInfo>,
 }
 
+const MAX_REGISTERED_DEVICES: usize = 64;
+
 impl DeviceRegistry {
     pub fn new() -> Self {
         Self { devices: Vec::new() }
@@ -132,7 +134,7 @@ impl DeviceRegistry {
     pub fn register(&mut self, dev: DeviceInfo) {
         if let Some(existing) = self.devices.iter_mut().find(|d| d.id == dev.id) {
             *existing = dev;
-        } else {
+        } else if self.devices.len() < MAX_REGISTERED_DEVICES {
             self.devices.push(dev);
         }
     }
@@ -146,12 +148,10 @@ impl DeviceRegistry {
 /// Strict whitelist for device commands (protect against arbitrary command injection)
 pub fn is_command_allowed(cmd: &str) -> bool {
     let trimmed = cmd.trim();
-    if trimmed.starts_with("BURST_RATE:") {
-        let rate_str = &trimmed[11..];
+    if let Some(rate_str) = trimmed.strip_prefix("BURST_RATE:") {
         return matches!(rate_str, "20" | "30" | "50" | "100");
     }
-    if trimmed.starts_with("CHALLENGE_BEEP:") {
-        let arg = &trimmed[15..];
+    if let Some(arg) = trimmed.strip_prefix("CHALLENGE_BEEP:") {
         return matches!(arg, "0" | "1");
     }
     if trimmed.starts_with("CHALLENGE_VOICE:") || trimmed.starts_with("PLAY_TTS:") {

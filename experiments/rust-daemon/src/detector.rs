@@ -69,9 +69,11 @@ pub struct Detector {
     pub last_fall_bpm: f64,
     pub last_fall_confidence: f64,
     pub latest_spr: f64,
+    pub last_ts: Option<f64>,
 }
 
 impl Detector {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         calibration_seconds: f64,
         stillness_seconds: f64,
@@ -112,7 +114,15 @@ impl Detector {
             last_fall_bpm: 0.0,
             last_fall_confidence: 0.0,
             latest_spr: 0.0,
+            last_ts: None,
         }
+    }
+
+    pub fn start_calibration(&mut self) {
+        self.state = HumanState::Calibrating;
+        self.calib_start = None;
+        self.calib_vars.clear();
+        self.calib_diffs.clear();
     }
 
     fn switch(&mut self, new_state: HumanState, f: &Features) {
@@ -141,7 +151,8 @@ impl Detector {
     }
 
     /// Control-plane entry used by the web console's manual inspection.
-    pub fn force_inspect(&mut self, ts: f64) {
+    pub fn force_inspect(&mut self, fallback_ts: f64) {
+        let ts = self.last_ts.unwrap_or(fallback_ts);
         if self.object_watcher.take().is_some() {
             self.trace.push(TraceEvent::ObjectWatch {
                 ts,
@@ -173,6 +184,7 @@ impl Detector {
 
     pub fn update(&mut self, f: &Features) -> HumanState {
         let now = f.timestamp;
+        self.last_ts = Some(now);
 
         if f.sample_rate_hz < 3.0 {
             if self.object_watcher.take().is_some() {

@@ -11,10 +11,10 @@ start_service() {
 
 	local enabled input udp_addr serial_dev baud http_addr storage_dir data_dir
 	local home_mac calibration_secs stillness_secs window rssi_floor api_token cookie_secure
-	local object_confirm_secs object_confirm_cv object_confirm_min_intervals
+	local object_confirm_secs object_confirm_cv object_confirm_min_intervals enable_peak_regularity
 	local room_name challenge_enabled household_id
 	local pushplus_token serverchan_key webhook_url ha_webhook_url sms_webhook_url
-	local miniprogram_url miniprogram_token notify_timeout
+	local miniprogram_url miniprogram_token bark_key notify_timeout
 	config_get_bool enabled safehalo enabled 1
 	[ "$enabled" -eq 0 ] && return 0
 
@@ -25,7 +25,7 @@ start_service() {
 	config_get http_addr safehalo http_addr '0.0.0.0:8091'
 	config_get storage_dir safehalo storage_dir '/etc/safehalo'
 	config_get data_dir safehalo data_dir '/etc/safehalo/data'
-	config_get home_mac safehalo home_mac 'c0:06:c3:11:22:33'
+	config_get home_mac safehalo home_mac 'auto'
 	config_get calibration_secs safehalo calibration_secs 4
 	config_get stillness_secs safehalo stillness_secs 5
 	config_get window safehalo window 30
@@ -33,6 +33,7 @@ start_service() {
 	config_get object_confirm_secs safehalo object_confirm_secs 0
 	config_get object_confirm_cv safehalo object_confirm_cv 0.35
 	config_get object_confirm_min_intervals safehalo object_confirm_min_intervals 3
+	config_get_bool enable_peak_regularity safehalo enable_peak_regularity 0
 	config_get api_token safehalo api_token ''
 	config_get_bool cookie_secure safehalo cookie_secure 0
 	config_get room_name safehalo room_name '客厅'
@@ -45,11 +46,13 @@ start_service() {
 	config_get sms_webhook_url safehalo sms_webhook_url ''
 	config_get miniprogram_url safehalo miniprogram_url ''
 	config_get miniprogram_token safehalo miniprogram_token ''
+	config_get bark_key safehalo bark_key ''
 	config_get notify_timeout safehalo notify_timeout 5
 
 	local token_args
 	[ -n "$api_token" ] && token_args="--api-token $api_token"
 	[ "$cookie_secure" -eq 1 ] && token_args="$token_args --cookie-secure"
+	[ "$enable_peak_regularity" -eq 1 ] && token_args="$token_args --enable-peak-regularity"
 
 	local notify_args
 	[ -n "$pushplus_token" ] && notify_args="$notify_args --pushplus-token $pushplus_token"
@@ -59,6 +62,7 @@ start_service() {
 	[ -n "$sms_webhook_url" ] && notify_args="$notify_args --sms-webhook $sms_webhook_url"
 	[ -n "$miniprogram_url" ] && notify_args="$notify_args --miniprogram-url $miniprogram_url"
 	[ -n "$miniprogram_token" ] && notify_args="$notify_args --miniprogram-token $miniprogram_token"
+	[ -n "$bark_key" ] && notify_args="$notify_args --bark-key $bark_key"
 
 	local input_args challenge_arg
 	case "$input" in

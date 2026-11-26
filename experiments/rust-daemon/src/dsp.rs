@@ -96,6 +96,9 @@ pub struct NeighborEntry {
     pub rejection_reason: String,
 }
 
+const MAX_NEIGHBOR_REGISTRY: usize = 256;
+const AUTO_BIND_SAMPLE_COUNT: u64 = 50;
+
 pub struct NeighborFilter {
     pub home: Vec<String>,
     pub rssi_floor: i32,
@@ -106,12 +109,22 @@ pub struct NeighborFilter {
     pub accepted: u64,
     pub weak_dropped: u64,
     pub random_dropped: u64,
+    pub auto_learning: bool,
+    learning_samples: Vec<(String, Vec<i32>)>,
+    learning_counter: u64,
 }
 
 impl NeighborFilter {
     pub fn new(home: &str, rssi_floor: i32) -> Self {
+        let cleaned = clean_mac(home);
+        let home_vec = if cleaned.is_empty() || cleaned == "auto" {
+            Vec::new()
+        } else {
+            vec![cleaned]
+        };
+        let auto_learning = home_vec.is_empty();
         NeighborFilter {
-            home: vec![clean_mac(home)],
+            home: home_vec,
             rssi_floor,
             tilt_thresh: 0.45,
             registry: Vec::new(),
@@ -120,6 +133,41 @@ impl NeighborFilter {
             accepted: 0,
             weak_dropped: 0,
             random_dropped: 0,
+            auto_learning,
+            learning_samples: Vec::new(),
+            learning_counter: 0,
+        }
+    }
+    fn process_auto_learning(&mut self, mac: &str, rssi: i32) {
+        if mac.is_empty() {
+            return;
+        }
+        if let Some((_, samples)) = self.learning_samples.iter_mut().find(|(m, _)| m == mac) {
+            samples.push(rssi);
+        } else if self.learning_samples.len() < 64 {
+            self.learning_samples.push((mac.to_string(), vec![rssi]));
+        }
+        self.learning_counter += 1;
+        if self.learning_counter >= AUTO_BIND_SAMPLE_COUNT {
+            let mut best_mac: Option<String> = None;
+            let mut best_score = -9999.0_f64;
+            for (cand_mac, list) in &self.learning_samples {
+                if list.len() < 5 {
+                    continue;
+                }
+                let avg: f64 = list.iter().map(|&x| x as f64).sum::<f64>() / list.len() as f64;
+                let score = avg + (list.len() as f64 / AUTO_BIND_SAMPLE_COUNT as f64) * 20.0;
+                if score > best_score {
+                    best_score = score;
+                    best_mac = Some(cand_mac.clone());
+                }
+            }
+            if let Some(chosen) = best_mac {
+                eprintln!("[NeighborFilter] auto-bound home router BSSID: {}", chosen);
+                self.home.push(chosen);
+                self.auto_learning = false;
+                self.learning_samples.clear();
+            }
         }
     }
     fn record(&mut self, mac: &str, rssi: i32, reason: String) {
@@ -129,6 +177,16 @@ impl NeighborFilter {
             e.avg_rssi = e.avg_rssi * 0.9 + rssi as f64 * 0.1;
             e.rejection_reason = reason;
         } else {
+            if self.registry.len() >= MAX_NEIGHBOR_REGISTRY {
+                if let Some((min_idx, _)) = self
+                    .registry
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, e)| e.packet_count)
+                {
+                    self.registry.swap_remove(min_idx);
+                }
+            }
             self.registry.push(NeighborEntry {
                 bssid: mac.to_string(),
                 packet_count: 1,
@@ -154,6 +212,13 @@ impl NeighborFilter {
         self.total_inspected += 1;
         let mac = clean_mac(&p.mac);
         let rssi = p.rssi;
+        if self.auto_learning {
+            self.process_auto_learning(&mac, rssi);
+            if self.home.is_empty() {
+                self.accepted += 1;
+                return true;
+            }
+        }
         if is_random_mac(&mac) {
             self.random_dropped += 1;
             self.rejected += 1;
@@ -228,12 +293,23 @@ pub struct SignalFilter {
     guard: usize,
     pub hampel_window: usize,
     hampel_threshold: f64,
+    pub water_flow_damping: bool,
+    pub metal_multipath_damping: bool,
     history: Vec<Vec<f64>>,
+    ema_state: Vec<f64>,
 }
 
 impl SignalFilter {
     pub fn new() -> Self {
-        SignalFilter { guard: 6, hampel_window: 5, hampel_threshold: 3.0, history: Vec::new() }
+        SignalFilter {
+            guard: 6,
+            hampel_window: 5,
+            hampel_threshold: 3.0,
+            water_flow_damping: false,
+            metal_multipath_damping: false,
+            history: Vec::new(),
+            ema_state: Vec::new(),
+        }
     }
     fn valid_indices(&self, total: usize) -> Vec<usize> {
         let center = total / 2;
@@ -245,7 +321,16 @@ impl SignalFilter {
         if raw.is_empty() {
             return Vec::new();
         }
-        let extracted: Vec<f64> = self.valid_indices(raw.len()).iter().map(|&i| raw[i]).collect();
+        let mut extracted: Vec<f64> = self.valid_indices(raw.len()).iter().map(|&i| raw[i]).collect();
+        if self.metal_multipath_damping && !extracted.is_empty() {
+            let mean_amp: f64 = extracted.iter().sum::<f64>() / extracted.len() as f64;
+            let cap = mean_amp * 2.2;
+            for v in &mut extracted {
+                if *v > cap {
+                    *v = cap;
+                }
+            }
+        }
         let energy: f64 = extracted.iter().map(|a| a * a).sum();
         let normed: Vec<f64> = if energy <= 1e-9 {
             vec![0.0; extracted.len()]
@@ -256,17 +341,25 @@ impl SignalFilter {
         let m = normed.len();
         if self.history.len() != m {
             self.history = normed.iter().map(|v| vec![*v]).collect();
+            self.ema_state = normed.clone();
             return normed;
         }
         let mut out = Vec::with_capacity(m);
-        for i in 0..m {
-            let val = normed[i];
+        for (i, &val) in normed.iter().enumerate() {
             let buf = &mut self.history[i];
             buf.push(val);
             while buf.len() > self.hampel_window {
                 buf.remove(0);
             }
-            out.push(hampel(buf, self.hampel_threshold));
+            let mut clean_val = hampel(buf, self.hampel_threshold);
+            if self.water_flow_damping {
+                let prev = self.ema_state.get(i).copied().unwrap_or(clean_val);
+                clean_val = 0.65 * prev + 0.35 * clean_val;
+                if i < self.ema_state.len() {
+                    self.ema_state[i] = clean_val;
+                }
+            }
+            out.push(clean_val);
         }
         out
     }
@@ -340,7 +433,7 @@ impl Extractor {
         let max_variance = variances.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let diff_energy: f64 = self.diffs.iter().sum::<f64>() / self.diffs.len() as f64;
         let dlen = self.diffs.len();
-        let short_start = if dlen >= 5 { dlen - 5 } else { 0 };
+        let short_start = dlen.saturating_sub(5);
         let recent_max = self.diffs.range(short_start..).cloned().fold(f64::NEG_INFINITY, f64::max);
         let mean_diff = if diff_energy > 1e-6 { diff_energy } else { 1e-6 };
         let spike_ratio = recent_max / mean_diff;

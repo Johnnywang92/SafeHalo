@@ -127,7 +127,15 @@ impl NotifyConfig {
             self.timeout_secs
         );
         let path = PathBuf::from(dir).join("notifier_config.json");
-        let _ = fs::write(&path, text);
+        let tmp = path.with_extension("json.tmp");
+        if fs::write(&tmp, text).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+            }
+            let _ = fs::rename(&tmp, &path);
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -382,7 +390,7 @@ impl Notifier {
                         .min_by(|a, b| a.partial_cmp(b).unwrap())
                     {
                         if earliest > now {
-                            let diff = (earliest - now).max(0.05).min(2.0);
+                            let diff = (earliest - now).clamp(0.05, 2.0);
                             timeout = Duration::from_secs_f64(diff);
                         } else {
                             timeout = Duration::from_millis(50);
@@ -611,12 +619,17 @@ fn deliver_channel(cfg: &NotifyConfig, channel: &str, n: &Notice, timeout: Durat
             CHAN_PUSHPLUS,
         ) => {
             let title = "🚨【紧急预警】SafeHalo 检测到疑似跌倒！";
+            let bpm_str = if *bpm > 0.0 {
+                format!("{:.0} bpm", bpm)
+            } else {
+                "未检出清晰呼吸节律，请立即核实".to_string()
+            };
             let content = format!(
-                "### 紧急安全事件通知\n\n- **监测位置**: {}\n- **发生时间**: {}\n- **预警级别**: 红色紧急（检测到剧烈冲击并持续倒地静止）\n- **置信度**: {:.0}%\n- **呼吸估计**: {:.0} bpm\n- **事件编号**: {}\n- **附带信息**: {}\n\n> 请立即通过家中监控或电话确认老人安全！如无法取得联系，请尽快前往或联系邻居协助。",
+                "### 紧急安全事件通知\n\n- **监测位置**: {}\n- **发生时间**: {}\n- **预警级别**: 红色紧急（检测到剧烈冲击并持续倒地静止）\n- **置信度**: {:.0}%\n- **呼吸估计**: {}\n- **事件编号**: {}\n- **附带信息**: {}\n\n> 请立即通过家中监控或电话确认老人安全！如无法取得联系，请尽快前往或联系邻居协助。",
                 room,
                 now.date_time,
                 confidence * 100.0,
-                bpm,
+                bpm_str,
                 event_id,
                 details
             );
@@ -626,7 +639,7 @@ fn deliver_channel(cfg: &NotifyConfig, channel: &str, n: &Notice, timeout: Durat
                 json::escape(title),
                 json::escape(&content)
             );
-            post_json("http://www.pushplus.plus/send", &body, timeout)
+            post_json("https://www.pushplus.plus/send", &body, timeout)
         }
         (
             Notice::Fall {
@@ -774,7 +787,7 @@ fn deliver_channel(cfg: &NotifyConfig, channel: &str, n: &Notice, timeout: Durat
                 json::escape(title),
                 json::escape(content)
             );
-            post_json("http://www.pushplus.plus/send", &body, timeout)
+            post_json("https://www.pushplus.plus/send", &body, timeout)
         }
         (Notice::Generic { title, content, .. }, CHAN_SERVERCHAN) => {
             let url = format!("https://sctapi.ftqq.com/{}.send", cfg.serverchan_key);
@@ -871,7 +884,7 @@ fn post_json_with_auth(url: &str, body: &str, extra_header: &str, timeout: Durat
     if url.starts_with("http://") {
         post_http(url, body, extra_header, timeout)
     } else if url.starts_with("https://") {
-        post_https_helper(url, body, timeout)
+        post_https_helper(url, body, extra_header, timeout)
     } else {
         eprintln!("[notify] unsupported url scheme: {}", url);
         false
@@ -907,7 +920,7 @@ fn post_http(url: &str, body: &str, extra_header: &str, timeout: Duration) -> bo
             path,
             hostport,
             extra_header,
-            body.as_bytes().len(),
+            body.len(),
             body
         );
         if stream.write_all(req.as_bytes()).is_err() {
@@ -939,25 +952,29 @@ fn post_http(url: &str, body: &str, extra_header: &str, timeout: Duration) -> bo
     false
 }
 
-fn post_https_helper(url: &str, body: &str, timeout: Duration) -> bool {
+fn post_https_helper(url: &str, body: &str, extra_header: &str, timeout: Duration) -> bool {
     let secs = timeout.as_secs().max(1).to_string();
+    let trimmed_extra = extra_header.trim();
+    let mut curl_args = vec![
+        "-sS",
+        "-m",
+        &secs,
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "-X",
+        "POST",
+        "-H",
+        "Content-Type: application/json; charset=utf-8",
+    ];
+    if !trimmed_extra.is_empty() {
+        curl_args.push("-H");
+        curl_args.push(trimmed_extra);
+    }
+    curl_args.extend_from_slice(&["--data-binary", "@-", url]);
     if let Ok(mut child) = Command::new("curl")
-        .args([
-            "-sS",
-            "-m",
-            &secs,
-            "-o",
-            "/dev/null",
-            "-w",
-            "%{http_code}",
-            "-X",
-            "POST",
-            "-H",
-            "Content-Type: application/json; charset=utf-8",
-            "--data-binary",
-            "@-",
-            url,
-        ])
+        .args(&curl_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -976,17 +993,23 @@ fn post_https_helper(url: &str, body: &str, timeout: Duration) -> bool {
             }
         }
     }
+    let post_data_arg = format!("--post-data={}", body);
+    let extra_hdr_arg = format!("--header={}", trimmed_extra);
+    let mut wget_args = vec![
+        "-q",
+        "-T",
+        &secs,
+        "-O",
+        "/dev/null",
+        "--header=Content-Type: application/json; charset=utf-8",
+    ];
+    if !trimmed_extra.is_empty() {
+        wget_args.push(&extra_hdr_arg);
+    }
+    wget_args.push(&post_data_arg);
+    wget_args.push(url);
     if Command::new("wget")
-        .args([
-            "-q",
-            "-T",
-            &secs,
-            "-O",
-            "/dev/null",
-            "--header=Content-Type: application/json; charset=utf-8",
-            &format!("--post-data={}", body),
-            url,
-        ])
+        .args(&wget_args)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -995,18 +1018,20 @@ fn post_https_helper(url: &str, body: &str, timeout: Duration) -> bool {
     {
         return true;
     }
+    let mut uf_args = vec![
+        "-q",
+        "-T",
+        &secs,
+        "-O",
+        "/dev/null",
+        "--header=Content-Type: application/json; charset=utf-8",
+    ];
+    if !trimmed_extra.is_empty() {
+        uf_args.push(&extra_hdr_arg);
+    }
+    uf_args.extend_from_slice(&["--post-data", body, url]);
     Command::new("uclient-fetch")
-        .args([
-            "-q",
-            "-T",
-            &secs,
-            "-O",
-            "/dev/null",
-            "--header=Content-Type: application/json; charset=utf-8",
-            "--post-data",
-            body,
-            url,
-        ])
+        .args(&uf_args)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -1124,12 +1149,6 @@ mod tests {
             }
         };
         let addr = listener.local_addr().unwrap();
-        // Check if loopback connection is permitted in this environment before spawning server
-        let can_connect = TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok();
-        if !can_connect {
-            eprintln!("skipping plain_http_post in sandbox (loopback connect not permitted)");
-            return;
-        }
         let handle = std::thread::spawn(move || {
             if let Ok((mut s, _)) = listener.accept() {
                 let mut buf = [0u8; 4096];

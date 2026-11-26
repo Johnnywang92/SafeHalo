@@ -111,11 +111,13 @@ impl ObjectConfirmWatcher {
             // left strictly greater, right allows equality: a pure sine sampled
             // on the 10 Hz grid often puts the peak between samples; award the
             // tie to the left sample so it is not lost.
-            if zm[i] > zm[i - 1] && zm[i] >= zm[i + 1] {
-                if zm[i] > AMP_THRESHOLD && (i as i64 - last_peak >= min_dist) {
-                    peak_idx.push(i);
-                    last_peak = i as i64;
-                }
+            if zm[i] > zm[i - 1]
+                && zm[i] >= zm[i + 1]
+                && zm[i] > AMP_THRESHOLD
+                && (i as i64 - last_peak >= min_dist)
+            {
+                peak_idx.push(i);
+                last_peak = i as i64;
             }
         }
 

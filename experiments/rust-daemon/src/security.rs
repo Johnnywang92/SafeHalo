@@ -17,8 +17,8 @@ pub enum SecurityMode {
 impl SecurityMode {
     pub fn parse(s: &str) -> Self {
         match s.trim().to_ascii_uppercase().as_str() {
-            "ARMED_AWAY" | "ARM_AWAY" | "AWAY" => SecurityMode::ArmedAway,
-            "ARMED_NIGHT" | "ARM_NIGHT" | "NIGHT" | "ARM_HOME" => SecurityMode::ArmedNight,
+            "ARMED_AWAY" | "AWAY_SECURITY" | "ARM_AWAY" | "AWAY" => SecurityMode::ArmedAway,
+            "ARMED_NIGHT" | "NIGHT_GUARD" | "ARM_NIGHT" | "NIGHT" | "ARM_HOME" => SecurityMode::ArmedNight,
             "CURFEW" => SecurityMode::Curfew,
             _ => SecurityMode::FallGuard,
         }
@@ -97,16 +97,20 @@ impl SecurityGuard {
         // Mode: CURFEW (Senior anti-wandering)
         if self.mode == SecurityMode::Curfew {
             if state == "EMPTY" {
-                if self.empty_start_time.is_none() {
-                    self.empty_start_time = Some(now);
-                } else if (now - self.empty_start_time.unwrap()) >= self.curfew_empty_timeout_secs {
-                    self.last_alarm_time = Some(now);
-                    let secs = (now - self.empty_start_time.unwrap()) as u64;
-                    return Some(SecurityAlert {
-                        level: "ALARM",
-                        title: "⚠️【防走失告警】老人离家超时未归！".into(),
-                        message: format!("防走失布防告警：监测区域已连续 {} 秒无人，请关注老人是否深夜开门外出！", secs),
-                    });
+                match self.empty_start_time {
+                    None => {
+                        self.empty_start_time = Some(now);
+                    }
+                    Some(start) if (now - start) >= self.curfew_empty_timeout_secs => {
+                        self.last_alarm_time = Some(now);
+                        let secs = (now - start) as u64;
+                        return Some(SecurityAlert {
+                            level: "ALARM",
+                            title: "⚠️【防走失告警】老人离家超时未归！".into(),
+                            message: format!("防走失布防告警：监测区域已连续 {} 秒无人，请关注老人是否深夜开门外出！", secs),
+                        });
+                    }
+                    _ => {}
                 }
             } else if matches!(state, "MOVING" | "STATIC" | "FALL_SUSPECT" | "FALL_CONFIRMED") {
                 self.empty_start_time = None;

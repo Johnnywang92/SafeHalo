@@ -187,8 +187,18 @@ impl Calibrator {
             s.drift_adaptations_count,
             json::escape(&s.last_updated)
         );
-        if let Err(e) = fs::write(&self.model_file, body) {
+        let tmp = self.model_file.with_extension("json.tmp");
+        if let Err(e) = fs::write(&tmp, body) {
             eprintln!("[AutoCalibrator] 保存基线模型失败: {}", e);
+            return;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+        }
+        if let Err(e) = fs::rename(&tmp, &self.model_file) {
+            eprintln!("[AutoCalibrator] 原子替换基线模型失败: {}", e);
         }
     }
 

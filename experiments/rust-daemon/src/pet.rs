@@ -36,12 +36,10 @@ impl PetFilter {
 
         let is_active_motion = diff_ratio >= 1.5;
         let is_low_participation = spr < self.spr_threshold;
-        let is_moderate_energy = diff_ratio >= 1.5 && diff_ratio < 2.6;
+        let is_moderate_energy = (1.5..2.6).contains(&diff_ratio);
 
         if is_active_motion && is_low_participation && is_moderate_energy {
-            let confidence = ((1.0 - spr) * 0.7 + (1.0 - diff_ratio / 3.0) * 0.3)
-                .max(0.4)
-                .min(0.95);
+            let confidence = ((1.0 - spr) * 0.7 + (1.0 - diff_ratio / 3.0) * 0.3).clamp(0.4, 0.95);
             return PetResult {
                 is_pet: true,
                 confidence,

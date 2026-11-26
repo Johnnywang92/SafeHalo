@@ -64,6 +64,7 @@ pub struct Inspector {
     start_time: f64,
     manual_safe: bool,
     wave: Vec<f64>,
+    wave_ts: Vec<f64>,
     ratios: Vec<f64>,
     pub events: Vec<InspEvent>,
     pub enable_peak_regularity: bool,
@@ -79,6 +80,7 @@ impl Inspector {
             start_time: 0.0,
             manual_safe: false,
             wave: Vec::new(),
+            wave_ts: Vec::new(),
             ratios: Vec::new(),
             events: Vec::new(),
             enable_peak_regularity: false,
@@ -103,6 +105,7 @@ impl Inspector {
         self.start_time = ts;
         self.manual_safe = false;
         self.wave.clear();
+        self.wave_ts.clear();
         self.ratios.clear();
         self.events.push(InspEvent::Burst { ts, rate: 100 });
         self.switch(InspState::HighFreqBurst, ts);
@@ -112,6 +115,7 @@ impl Inspector {
         self.events.push(InspEvent::Burst { ts, rate: 30 });
         self.state = InspState::Standby;
         self.wave.clear();
+        self.wave_ts.clear();
         self.ratios.clear();
     }
 
@@ -154,8 +158,26 @@ impl Inspector {
         if !amps.is_empty() {
             let mean = amps.iter().sum::<f64>() / amps.len() as f64;
             self.wave.push(mean);
-            if self.wave.len() > 150 {
-                self.wave.remove(0);
+            self.wave_ts.push(ts);
+            if !self.enable_peak_regularity {
+                if self.wave.len() > 150 {
+                    self.wave.remove(0);
+                    if !self.wave_ts.is_empty() {
+                        self.wave_ts.remove(0);
+                    }
+                }
+            } else {
+                let max_win = 6.0_f64.max(self.duration + 0.5);
+                while self.wave_ts.len() > 150 && (ts - self.wave_ts[0]) > max_win {
+                    self.wave_ts.remove(0);
+                    self.wave.remove(0);
+                }
+                if self.wave.len() > 600 {
+                    self.wave.remove(0);
+                    if !self.wave_ts.is_empty() {
+                        self.wave_ts.remove(0);
+                    }
+                }
             }
         }
 
@@ -179,10 +201,16 @@ impl Inspector {
                 tail.iter().sum::<f64>() / tail.len() as f64
             };
             let v = if has_resp || avg > 1.28 {
-                let eff_bpm = if has_resp { bpm } else { 16.0 };
+                let eff_bpm = if has_resp {
+                    bpm
+                } else if self.enable_peak_regularity {
+                    0.0
+                } else {
+                    16.0
+                };
                 self.switch(InspState::VerdictFall, ts);
                 let mut v = Verdict::new(InspState::VerdictFall);
-                v.has_respiration = true;
+                v.has_respiration = if self.enable_peak_regularity { has_resp } else { true };
                 v.respiration_bpm = eff_bpm;
                 v.confidence = 0.96;
                 v
@@ -204,7 +232,19 @@ impl Inspector {
         if n < 30 {
             return (false, 0.0);
         }
-        let w = 12usize;
+        let mut dur = 2.0_f64.max(self.duration - 1.0);
+        let mut w = 12usize;
+        let mut min_peak_dist: i64 = 25;
+        if self.enable_peak_regularity {
+            if self.wave_ts.len() == n && (self.wave_ts[n - 1] - self.wave_ts[0]) >= 2.0 {
+                dur = self.wave_ts[n - 1] - self.wave_ts[0];
+            }
+            let fs_est = n as f64 / dur;
+            if fs_est > 45.0 {
+                w = 12.max((0.40 * fs_est).round() as usize);
+                min_peak_dist = 25.max((0.85 * fs_est).round() as i64);
+            }
+        }
         let smoothed: Vec<f64> = (0..n)
             .map(|i| {
                 let s = i.saturating_sub(w);
@@ -216,13 +256,13 @@ impl Inspector {
         let zm: Vec<f64> = smoothed.iter().map(|x| x - mean).collect();
 
         let mut peaks = 0u32;
-        let mut last_peak: i64 = -25;
+        let mut last_peak: i64 = -min_peak_dist;
         let mut peak_indices: Vec<usize> = Vec::new();
         for i in 1..n - 1 {
             if zm[i] > zm[i - 1]
                 && zm[i] > zm[i + 1]
                 && zm[i] > 0.000015
-                && (i as i64 - last_peak >= 25)
+                && (i as i64 - last_peak >= min_peak_dist)
             {
                 peaks += 1;
                 last_peak = i as i64;
@@ -232,16 +272,15 @@ impl Inspector {
 
         if !self.enable_peak_regularity {
             if (1..=6).contains(&peaks) {
-                let dur = 2.0_f64.max(self.duration - 1.0);
                 let bpm = peaks as f64 / dur * 60.0;
-                return (true, bpm.max(12.0).min(26.0));
+                return (true, bpm.clamp(12.0, 26.0));
             } else {
                 return (false, 0.0);
             }
         }
 
         // P0-3: 呼吸峰规整度与准周期性抗噪检验
-        if peaks < 1 || peaks > 6 {
+        if !(1..=6).contains(&peaks) {
             return (false, 0.0);
         }
 
@@ -252,7 +291,6 @@ impl Inspector {
             return (false, 0.0);
         }
 
-        let dur = 2.0_f64.max(self.duration - 1.0);
         let bpm = peaks as f64 / dur * 60.0;
 
         if peaks == 1 {
@@ -270,7 +308,7 @@ impl Inspector {
             if lobe_width < min_width {
                 return (false, 0.0);
             }
-            return (true, bpm.max(12.0).min(26.0));
+            return (true, bpm.clamp(12.0, 26.0));
         }
 
         let intervals: Vec<f64> = peak_indices
@@ -293,7 +331,7 @@ impl Inspector {
             }
         }
 
-        (true, bpm.max(12.0).min(26.0))
+        (true, bpm.clamp(12.0, 26.0))
     }
 }
 

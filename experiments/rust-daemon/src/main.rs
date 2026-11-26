@@ -4,6 +4,7 @@
 //          actuation, incident persistence and notification fan-out.
 // Equivalence outputs (--trace / --snapshot) stay byte-identical to the
 // pre-service daemon.
+#![allow(clippy::manual_is_multiple_of)]
 
 mod auth;
 mod calibrator;
@@ -294,6 +295,10 @@ struct Pipeline {
     accepted: u64,
     features: u64,
     trace_len: usize,
+    is_replay: bool,
+    esp_clock_base: Option<f64>,
+    esp_last_raw_us: i64,
+    esp_wrap_offset_us: i64,
 }
 
 enum Action {
@@ -304,18 +309,32 @@ enum Action {
     Watch(&'static str),
 }
 
-fn drain_control(p: &mut Pipeline, bus: &Arc<Bus>) {
-    let (trigger, ack, sec_mode, tuned, is_configured) = {
+fn drain_control(p: &mut Pipeline, bus: &Arc<Bus>, serial_out: Option<&mut File>) {
+    let (trigger, ack, recalib, pending_cmds, sec_mode, tuned, is_configured) = {
         let mut s = bus.lock();
         let t = s.control.trigger_inspect;
         let a = s.control.ack_safe;
+        let r = s.control.recalibrate;
+        let cmds: Vec<String> = std::mem::take(&mut s.control.pending_commands);
         let m = s.security_mode.clone();
         let tuned = s.placement.tuned.clone();
         let conf = s.placement.is_configured;
         s.control.trigger_inspect = false;
         s.control.ack_safe = false;
-        (t, a, m, tuned, conf)
+        s.control.recalibrate = false;
+        (t, a, r, cmds, m, tuned, conf)
     };
+    if is_configured {
+        p.detector.fall_spike_threshold = tuned.fall_spike_threshold;
+        p.detector.inspector.duration = tuned.fall_stillness_seconds;
+        p.detector.pet.spr_threshold = tuned.pet_spr_threshold;
+        p.signal.hampel_window = tuned.hampel_window_size;
+        p.signal.water_flow_damping = tuned.water_flow_damping;
+        p.signal.metal_multipath_damping = tuned.metal_multipath_damping;
+    }
+    if recalib {
+        p.detector.start_calibration();
+    }
     if trigger {
         p.detector.force_inspect(wall_now());
     }
@@ -326,11 +345,12 @@ fn drain_control(p: &mut Pipeline, bus: &Arc<Bus>) {
     if p.security.mode != parsed_mode {
         p.security.set_mode(parsed_mode);
     }
-    if is_configured {
-        p.detector.fall_spike_threshold = tuned.fall_spike_threshold;
-        p.detector.inspector.duration = tuned.fall_stillness_seconds;
-        p.detector.pet.spr_threshold = tuned.pet_spr_threshold;
-        p.signal.hampel_window = tuned.hampel_window_size;
+    if !pending_cmds.is_empty() {
+        if let Some(f) = serial_out {
+            for cmd in pending_cmds {
+                let _ = serial::write_command(f, &cmd);
+            }
+        }
     }
 }
 
@@ -341,7 +361,7 @@ fn process_line(
     notifier: &Notifier,
     mut serial_out: Option<&mut File>,
 ) {
-    drain_control(p, bus);
+    drain_control(p, bus, serial_out.as_deref_mut());
 
     p.packets += 1;
     let pkt = match dsp::parse_line(line) {
@@ -357,7 +377,23 @@ fn process_line(
     }
     p.accepted += 1;
     let ts = if pkt.local_timestamp > 0 {
-        pkt.local_timestamp as f64 / 1e6
+        if p.is_replay || pkt.local_timestamp >= 1_000_000_000_000_000 {
+            pkt.local_timestamp as f64 / 1e6
+        } else {
+            // Real ESP32 boot-relative microsecond counter (< 1e15 us):
+            // unwrap 32-bit timer wraparounds (~71.5 min) and anchor to wall clock.
+            if pkt.local_timestamp < p.esp_last_raw_us
+                && (p.esp_last_raw_us - pkt.local_timestamp) > 2_000_000_000
+            {
+                p.esp_wrap_offset_us += 4_294_967_296;
+            }
+            p.esp_last_raw_us = pkt.local_timestamp;
+            let unwrapped_s = (pkt.local_timestamp + p.esp_wrap_offset_us) as f64 / 1e6;
+            let base = *p
+                .esp_clock_base
+                .get_or_insert_with(|| wall_now() - unwrapped_s);
+            base + unwrapped_s
+        }
     } else {
         wall_now()
     };
@@ -368,7 +404,7 @@ fn process_line(
     };
     p.features += 1;
     let state = p.detector.update(&f);
-    drain_control(p, bus);
+    drain_control(p, bus, serial_out.as_deref_mut());
 
     let mut actions: Vec<Action> = Vec::new();
     let mut new_transitions = 0u64;
@@ -570,6 +606,9 @@ fn process_line(
     if let Some(ns) = neighbor_snap {
         s.neighbor = ns;
     }
+    if (s.home_mac.is_empty() || s.home_mac == "auto") && !p.neighbor.home.is_empty() {
+        s.home_mac = p.neighbor.home[0].clone();
+    }
     s.calib = calib;
 }
 
@@ -698,6 +737,7 @@ fn run_serial(
                     }
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    drain_control(p, bus, Some(&mut file));
                     std::thread::sleep(Duration::from_millis(5));
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {}
@@ -741,6 +781,10 @@ fn main() {
         accepted: 0,
         features: 0,
         trace_len: 0,
+        is_replay: args.replay.is_some(),
+        esp_clock_base: None,
+        esp_last_raw_us: 0,
+        esp_wrap_offset_us: 0,
     };
 
     let mut notify_cfg = NotifyConfig::load(&args.storage_dir);
@@ -957,6 +1001,9 @@ fn main() {
         let calib = p.detector.calibrator.status_summary();
         let mut s = bus.lock();
         s.neighbor = ns;
+        if (s.home_mac.is_empty() || s.home_mac == "auto") && !p.neighbor.home.is_empty() {
+            s.home_mac = p.neighbor.home[0].clone();
+        }
         s.calib = calib;
         s.packets = p.packets;
         s.parse_dropped = p.parse_dropped;
