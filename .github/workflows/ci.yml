@@ -35,13 +35,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Cargo check & test
+      - name: Cargo clippy, build & test
         run: |
-          cargo check --manifest-path experiments/rust-daemon/Cargo.toml
+          cargo clippy --manifest-path experiments/rust-daemon/Cargo.toml -- -D warnings
           cargo test --manifest-path experiments/rust-daemon/Cargo.toml
+          cargo build --release --manifest-path experiments/rust-daemon/Cargo.toml
       - name: Dual-engine equivalence fixtures
         run: |
           bash experiments/rust-daemon/verify/run_fixtures.sh
       - name: Scenario comparisons
         run: |
           bash experiments/rust-daemon/verify/run_scenarios.sh
+      - name: Standalone service regression
+        run: |
+          bash experiments/rust-daemon/verify/run_service.sh
