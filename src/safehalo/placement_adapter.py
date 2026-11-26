@@ -162,10 +162,16 @@ class PlacementAdapter:
             )
             self.current_tuned_params = self.compute_tuned_parameters(self.current_config)
 
-            # 持久化落盘
+            # 持久化落盘（原子写入 + 0600 权限）
             try:
-                with open(self.config_file, "w", encoding="utf-8") as f:
+                tmp_file = f"{self.config_file}.tmp.{os.getpid()}"
+                with open(tmp_file, "w", encoding="utf-8") as f:
                     json.dump(asdict(self.current_config), f, ensure_ascii=False, indent=2)
+                try:
+                    os.chmod(tmp_file, 0o600)
+                except OSError:
+                    pass
+                os.replace(tmp_file, self.config_file)
                 logger.info(
                     f"[PlacementAdapter] 成功保存新守护配置: 【{room_name} / {nickname_clean}】，算法超参数已完成自适应调优"
                 )

@@ -67,8 +67,9 @@ def on_state_change(old_state: HumanState, new_state: HumanState, features: CSIF
     print(f"\n{COLOR_BOLD}[{now_str}] 状态切换: {old_state.value} -> {color}{new_state.value} ({desc}){COLOR_RESET}")
 
 def make_fall_alarm_handler(notifier: Optional[AlertNotifier] = None):
-    def on_fall_alarm(features: CSIFeatures):
+    def on_fall_alarm(features: CSIFeatures, verdict=None):
         now_str = datetime.fromtimestamp(features.timestamp).strftime("%H:%M:%S.%f")[:-3]
+        bpm = float(getattr(verdict, "respiration_bpm", 0.0) or 0.0)
         print(f"\n{'='*60}")
         print(f"{COLOR_RED}{COLOR_BOLD}[{now_str}] 🚨 严重告警：检测到跌倒且长时间未见起身活动！{COLOR_RESET}")
         print(f"触发参数: 方差={features.mean_variance:.6f}, 峰均比={features.spike_ratio:.2f}")
@@ -77,6 +78,7 @@ def make_fall_alarm_handler(notifier: Optional[AlertNotifier] = None):
             notifier.send_fall_alarm(
                 room_name="监测区域",
                 confidence="高",
+                bpm=bpm,
                 details=f"方差均值: {features.mean_variance:.6f}, 峰均比: {features.spike_ratio:.2f}"
             )
     return on_fall_alarm

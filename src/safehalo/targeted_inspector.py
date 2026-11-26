@@ -73,8 +73,9 @@ class TargetedFallInspector:
         self.start_time = 0.0
         self.manual_safe_acknowledged = False
 
-        # 定向呼吸特征积分缓存 (记录最近高密帧的微动时序)
+        # 定向呼吸特征积分缓存 (记录最近高密帧的微动时序与物理时间戳)
         self.respiration_wave_buffer = []
+        self.wave_timestamps = []
         self.diff_ratio_buffer = []
 
     def acknowledge_safe(self, source: str = "老人本地按键/语音应答"):
@@ -93,6 +94,7 @@ class TargetedFallInspector:
         self.start_time = timestamp
         self.manual_safe_acknowledged = False
         self.respiration_wave_buffer.clear()
+        self.wave_timestamps.clear()
         self.diff_ratio_buffer.clear()
 
         # 1. 立即向射频端请求突发提频激振 (如 100Hz)
@@ -151,8 +153,24 @@ class TargetedFallInspector:
         if subcarrier_amplitudes:
             # 提取对地面反射敏感的特征载波幅值均值
             self.respiration_wave_buffer.append(sum(subcarrier_amplitudes) / len(subcarrier_amplitudes))
-            if len(self.respiration_wave_buffer) > 150:
-                self.respiration_wave_buffer.pop(0)
+            self.wave_timestamps.append(timestamp)
+            if not self.enable_peak_regularity:
+                if len(self.respiration_wave_buffer) > 150:
+                    self.respiration_wave_buffer.pop(0)
+                    if self.wave_timestamps:
+                        self.wave_timestamps.pop(0)
+            else:
+                max_window_s = max(6.0, self.inspection_duration_seconds + 0.5)
+                while (
+                    len(self.wave_timestamps) > 150
+                    and (timestamp - self.wave_timestamps[0]) > max_window_s
+                ):
+                    self.wave_timestamps.pop(0)
+                    self.respiration_wave_buffer.pop(0)
+                if len(self.respiration_wave_buffer) > 600:
+                    self.respiration_wave_buffer.pop(0)
+                    if self.wave_timestamps:
+                        self.wave_timestamps.pop(0)
 
         # B1) 时序推进阶段 2: 经过 1/3 时长后进入地面微弱呼吸扫描阶段
         scan_trigger_t = max(0.8, self.inspection_duration_seconds * 0.33)
@@ -181,14 +199,18 @@ class TargetedFallInspector:
 
             if has_resp or avg_diff_ratio > 1.28:
                 # 确定检测到规律微弱呼吸或微弱生命体征，但无大肢体动作 -> 确诊倒地受困！
-                effective_bpm = bpm if has_resp else 16.0
-                self._switch_state(TargetedInspectionState.VERDICT_FALL, f"确诊倒地！探测到地面生命体征 (呼吸约 {effective_bpm:.0f} 次/分)")
+                if self.enable_peak_regularity:
+                    effective_bpm = bpm if has_resp else 0.0
+                else:
+                    effective_bpm = bpm if has_resp else 16.0
+                bpm_desc = f"呼吸约 {effective_bpm:.0f} 次/分" if effective_bpm > 0 else "检测到地面微动体征但未检出清晰呼吸节律"
+                self._switch_state(TargetedInspectionState.VERDICT_FALL, f"确诊倒地！探测到地面生命体征 ({bpm_desc})")
                 res = TargetedInspectionResult(
                     state=TargetedInspectionState.VERDICT_FALL,
-                    has_respiration=True,
+                    has_respiration=has_resp if self.enable_peak_regularity else True,
                     respiration_bpm=effective_bpm,
                     confidence=0.96,
-                    details=f"定向复查确诊：地面检测到持续弱体征微动 (呼吸节律约 {effective_bpm:.0f} bpm)，且完全无自主起身迹象！"
+                    details=f"定向复查确诊：地面检测到持续弱体征微动 ({bpm_desc})，且完全无自主起身迹象！"
                 )
             else:
                 # 既无起身动作，地面又完全没有胸腔起伏微动 -> 判定为物品/书本掉落地板
@@ -211,6 +233,7 @@ class TargetedFallInspector:
             self.on_request_burst_rate(30)
         self.current_state = TargetedInspectionState.STANDBY
         self.respiration_wave_buffer.clear()
+        self.wave_timestamps.clear()
         self.diff_ratio_buffer.clear()
 
     def _evaluate_ground_respiration(self) -> (bool, float):
@@ -221,20 +244,30 @@ class TargetedFallInspector:
         if n < 30:
             return (False, 0.0)
 
-        # 1. 移动平均平滑滤波 (半窗 12 帧，有效消除高频射频噪声，保留慢速呼吸包络)
+        # 1. 计算实际观测时长与采样率（P0-3 开启时自适应 100Hz 激振提频窗口）
+        duration_s = max(2.0, self.inspection_duration_seconds - 1.0)
         w = 12
+        min_peak_dist = 25
+        if self.enable_peak_regularity:
+            if len(self.wave_timestamps) == n and (self.wave_timestamps[-1] - self.wave_timestamps[0]) >= 2.0:
+                duration_s = self.wave_timestamps[-1] - self.wave_timestamps[0]
+            fs_est = n / duration_s if duration_s > 1e-6 else 30.0
+            if fs_est > 45.0:
+                w = max(12, int(round(0.40 * fs_est)))
+                min_peak_dist = max(25, int(round(0.85 * fs_est)))
+
+        # 2. 移动平均平滑滤波 (有效消除高频射频噪声，保留慢速呼吸包络)
         smoothed = []
         for i in range(n):
             start_idx = max(0, i - w)
             end_idx = min(n, i + w + 1)
             smoothed.append(sum(self.respiration_wave_buffer[start_idx:end_idx]) / (end_idx - start_idx))
 
-        # 2. 零均值化
+        # 3. 零均值化
         mean_v = sum(smoothed) / n
         zero_mean = [x - mean_v for x in smoothed]
 
-        # 3. 统计呼吸波峰频次 (增加最小峰间距约束，人体呼吸峰值间隔至少 1 秒 ~ 25 帧)
-        min_peak_dist = 25
+        # 4. 统计呼吸波峰频次
         peaks = 0
         last_peak_idx = -min_peak_dist
         peak_indices = []

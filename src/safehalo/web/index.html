@@ -2004,24 +2004,25 @@
               : '<span style="background: rgba(56,189,248,0.2); color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">家庭普通成员</span>';
             
             const isSelf = currentUser && currentUser.username === u.username;
+            const safeUser = fhEsc(u.username);
             const delBtn = isSelf 
               ? '<span style="color: var(--text-muted); font-size: 0.8rem;">(当前账号)</span>'
-              : `<button class="btn btn-secondary" style="background: rgba(239,68,68,0.2); color: var(--danger); padding: 4px 10px; font-size: 0.8rem;" onclick="deleteUser('${u.username}')">删除</button>`;
+              : `<button class="btn btn-secondary" style="background: rgba(239,68,68,0.2); color: var(--danger); padding: 4px 10px; font-size: 0.8rem;" data-username="${safeUser}" onclick="deleteUser(this.dataset.username)">删除</button>`;
 
             return `
               <tr>
-                <td style="font-weight: 600;">${u.username}</td>
-                <td>${u.display_name}</td>
+                <td style="font-weight: 600;">${safeUser}</td>
+                <td>${fhEsc(u.display_name || '')}</td>
                 <td>${roleBadge}</td>
-                <td style="font-size: 0.82rem; color: var(--text-muted);">${u.created_at}</td>
-                <td style="font-size: 0.82rem; color: var(--text-muted);">${u.last_login}</td>
+                <td style="font-size: 0.82rem; color: var(--text-muted);">${fhEsc(u.created_at || '')}</td>
+                <td style="font-size: 0.82rem; color: var(--text-muted);">${fhEsc(u.last_login || '')}</td>
                 <td>${delBtn}</td>
               </tr>
             `;
           }).join('');
         })
         .catch(err => {
-          document.getElementById('users-table-body').innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger);">${err.message}</td></tr>`;
+          document.getElementById('users-table-body').innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger);">${fhEsc(err.message || String(err))}</td></tr>`;
         });
     }
 
@@ -2140,10 +2141,10 @@
 
         return `
           <tr>
-            <td style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${e.timestamp}</td>
-            <td><span style="background: rgba(255,255,255,0.08); padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">${e.type}</span></td>
-            <td><span style="color: ${badgeColor}; font-weight: 700; font-size: 0.8rem;">${e.level}</span></td>
-            <td>${e.message}</td>
+            <td style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${fhEsc(e.timestamp || '')}</td>
+            <td><span style="background: rgba(255,255,255,0.08); padding: 3px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600;">${fhEsc(e.type || '')}</span></td>
+            <td><span style="color: ${badgeColor}; font-weight: 700; font-size: 0.8rem;">${fhEsc(e.level || '')}</span></td>
+            <td>${fhEsc(e.message || '')}</td>
           </tr>
         `;
       }).join('');
@@ -2443,6 +2444,11 @@
     }
 
     function updateTelemetry() {
+      if (!currentUser) {
+        const rateEl = document.getElementById('metric-rate');
+        if (rateEl) rateEl.innerText = '需登录';
+        return;
+      }
       fetch('/api/status')
         .then(r => {
           if (r.status === 401) throw new Error('unauthorized');
@@ -2487,18 +2493,49 @@
     }
 
     function sendTestPush() {
-      const token = document.getElementById('cfg-pushplus').value;
+      const token = (document.getElementById('cfg-pushplus')?.value || '').trim();
+      const serverchan = (document.getElementById('cfg-serverchan')?.value || '').trim();
+      const webhook = (document.getElementById('cfg-webhook')?.value || '').trim();
       fetch('/api/test_push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pushplus_token: token })
+        body: JSON.stringify({
+          pushplus_token: token,
+          serverchan_key: serverchan,
+          webhook_url: webhook
+        })
       })
       .then(r => r.json())
-      .then(d => alert(d.message || '测试推送请求已发出，请检查手机微信！'));
+      .then(d => alert(d.message || '测试推送请求已发出，请检查手机微信！'))
+      .catch(err => alert('测试推送失败: ' + err));
     }
 
     function saveConfig() {
-      alert('配置已成功保存！');
+      const token = (document.getElementById('cfg-pushplus')?.value || '').trim();
+      const serverchan = (document.getElementById('cfg-serverchan')?.value || '').trim();
+      const webhook = (document.getElementById('cfg-webhook')?.value || '').trim();
+      fetch('/api/notifier/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pushplus_token: token,
+          serverchan_key: serverchan,
+          webhook_url: webhook
+        })
+      })
+      .then(r => {
+        if (r.status === 401 || r.status === 403) {
+          alert('权限不足或未登录，请使用管理员账号登录后保存配置');
+          openAuthModal();
+          return null;
+        }
+        return r.json();
+      })
+      .then(d => {
+        if (!d) return;
+        showToast(d.message || '配置已成功保存！', d.success !== false);
+      })
+      .catch(err => alert('保存配置失败: ' + err));
     }
 
     function setSecurityMode(mode) {
@@ -2522,9 +2559,15 @@
     pollFamilyBoard();
     fetchFamilyIncidents();
     updateTelemetry();
-    setInterval(pollFamilyBoard, 2000);
-    setInterval(fetchFamilyIncidents, 10000);
-    setInterval(updateTelemetry, 2000);
+    setInterval(() => { if (!document.hidden) pollFamilyBoard(); }, 2000);
+    setInterval(() => { if (!document.hidden) fetchFamilyIncidents(); }, 10000);
+    setInterval(() => { if (!document.hidden) updateTelemetry(); }, 2000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        pollFamilyBoard();
+        updateTelemetry();
+      }
+    });
   </script>
 </body>
 </html>

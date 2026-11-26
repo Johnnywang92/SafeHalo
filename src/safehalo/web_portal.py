@@ -10,8 +10,10 @@ SafeHalo Web 控制台与配置服务器 (web_portal.py)
 import http.server
 import json
 import os
+import secrets
 import socketserver
 import time
+import urllib.parse
 from datetime import datetime
 from typing import Dict, List, Optional
 from .notifier import AlertNotifier
@@ -22,13 +24,15 @@ from .pilot_telemetry import PilotHouseholdManager
 from .miniprogram_bridge import IncidentFeedbackManager, WeChatMiniProgramBridge
 from .sensor_fusion_ecosystem import SensorFusionEcosystem, SensorType, LinkageAction
 
+MAX_POST_BODY_BYTES = 65536
+
 # 全局摆放自适应协调器与阶段 2 试点/事件管理实例
 placement_adapter = PlacementAdapter()
 pilot_manager = PilotHouseholdManager()
 incident_manager = IncidentFeedbackManager()
 
 def _on_eco_fall_confirmed(room: str, confidence: float, details: str):
-    logger.log_fall_alarm(details)
+    logger.log_fall_confirmed(details, bpm=0.0, confidence=confidence)
     incident_manager.record_incident(
         room_name=room,
         confidence=confidence,
@@ -163,19 +167,46 @@ def _must_change_exempt(method: str, path: str) -> bool:
         return path in (
             "/", "/index.html", "/api/auth/current", "/api/ha/status", "/api/routine",
             "/api/neighbor_spectrum", "/api/placement", "/api/multilink",
-            "/api/phase2/pilot", "/api/incidents", "/api/devices", "/api/health",
+            "/api/phase2/pilot", "/api/phase2/pilot/report", "/api/incidents", "/api/devices", "/api/health",
             "/api/sensors/status",
         )
     return path in ("/api/auth/login", "/api/auth/logout", "/api/challenge/acknowledge", "/api/sensors/event")
 
 
-class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
+class SafeHaloWebHandler(http.server.BaseHTTPRequestHandler):
     HTML_PATH = os.path.join(os.path.dirname(__file__), "web", "index.html")
+    timeout = 5
     routine_history_provider = None
+    devices_provider = None
+    on_device_command = None
+    on_sensor_actuate = None
     cookie_secure = False
+    api_token = os.environ.get("SAFEHALO_API_TOKEN", "")
 
-    def _get_session(self) -> Optional[Dict]:
-        """从 Authorization 标头或 Cookie 中提取并验证会话"""
+    def _is_machine_ok(self, query: Optional[Dict[str, List[str]]] = None) -> bool:
+        tok = (self.api_token or "").strip()
+        if not tok:
+            return False
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            candidate = auth_header[7:].strip()
+            if secrets.compare_digest(candidate, tok):
+                return True
+        if query and "token" in query and query["token"]:
+            if secrets.compare_digest(query["token"][0], tok):
+                return True
+        return False
+
+    def _get_session(self, query: Optional[Dict[str, List[str]]] = None) -> Optional[Dict]:
+        """从机器凭据、Authorization 标头或 Cookie 中提取并验证会话"""
+        if self._is_machine_ok(query):
+            return {
+                "username": "api-token",
+                "display_name": "Machine Token",
+                "role": "machine",
+                "must_change_password": False,
+            }
+
         # 1. 尝试 Bearer Token
         auth_header = self.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -205,7 +236,18 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
+    def _send_text(self, status_code: int, content_type: str, text: str):
+        self.send_response(status_code)
+        self.send_header("Content-Type", content_type)
+        self.end_headers()
+        self.wfile.write(text.encode("utf-8"))
+
     def do_GET(self):
+        parsed_url = urllib.parse.urlsplit(self.path)
+        self.raw_path = self.path
+        self.path = parsed_url.path
+        query = urllib.parse.parse_qs(parsed_url.query)
+
         # 静态首页 (无需登录先展示壳，前端根据认证状态自动弹出登录窗)
         if self.path in ("/", "/index.html"):
             self.send_response(200)
@@ -220,8 +262,8 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
 
         # 1. 认证状态检查接口 (公开)
         if self.path == "/api/auth/current":
-            sess = self._get_session()
-            if sess:
+            sess = self._get_session(query)
+            if sess and sess.get("role") != "machine":
                 self._send_json(200, {"authenticated": True, "user": sess})
             else:
                 self._send_json(200, {"authenticated": False, "user": None})
@@ -285,11 +327,18 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
 
         # 1.6 阶段 2：3~5 户入户试点月度误报统计与多日自校准看板 (公开遥测)
         if self.path == "/api/phase2/pilot":
+            if query.get("format", [""])[0] == "markdown":
+                self._send_text(200, "text/markdown; charset=utf-8", pilot_manager.export_markdown_report())
+                return
             self._send_json(200, {
                 "pilot_dashboard": pilot_manager.get_pilot_dashboard(),
                 "auto_calibration": shared_system_state.get("auto_calibration", {}),
                 "recent_incidents": incident_manager.list_recent_incidents(limit=10),
             })
+            return
+
+        if self.path == "/api/phase2/pilot/report":
+            self._send_text(200, "text/markdown; charset=utf-8", pilot_manager.export_markdown_report())
             return
 
         # 1.7 阶段 2：告警事件与反馈列表查询 (公开/小程序端拉取)
@@ -301,19 +350,19 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
 
         # 1.8 硬件感知与作动设备列表 (公开遥测)
         if self.path == "/api/devices":
-            self._send_json(200, {
-                "devices": [
-                    {
-                        "id": "csi_probe_0",
-                        "type": "serial",
-                        "role": "sensor_actuator",
-                        "path": "auto",
-                        "baud": 921600,
-                        "status": "online",
-                        "last_seen": 0.0,
-                    }
-                ]
-            })
+            provider = getattr(SafeHaloWebHandler, "devices_provider", None)
+            dev_list = provider() if provider else [
+                {
+                    "id": "csi_probe_0",
+                    "type": "serial",
+                    "role": "sensor_actuator",
+                    "path": "auto",
+                    "baud": 921600,
+                    "status": "online",
+                    "last_seen": 0.0,
+                }
+            ]
+            self._send_json(200, {"devices": dev_list})
             return
 
         # 1.9 服务健康检查与运维探针 (公开遥测)
@@ -335,7 +384,7 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # --- 以下接口均需要登录 ---
-        sess = self._get_session()
+        sess = self._get_session(query)
         if not sess:
             self._send_json(401, {"error": "Unauthorized", "message": "未登录或登录已过期，请重新登录"})
             return
@@ -387,19 +436,52 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
         self.send_error(404, "Not Found")
 
     def do_POST(self):
-        content_length = int(self.headers.get("Content-Length", 0))
-        post_data = self.rfile.read(content_length)
+        parsed_url = urllib.parse.urlsplit(self.path)
+        self.raw_path = self.path
+        self.path = parsed_url.path
+        query = urllib.parse.parse_qs(parsed_url.query)
+
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json(400, {"error": "BadRequest", "message": "Invalid Content-Length"})
+            return
+        if content_length < 0:
+            self._send_json(400, {"error": "BadRequest", "message": "Negative Content-Length"})
+            return
+        if content_length > MAX_POST_BODY_BYTES:
+            self._send_json(413, {"error": "PayloadTooLarge", "message": "请求体超过 64KB 限制"})
+            return
+
+        post_data = self.rfile.read(content_length) if content_length > 0 else b""
         data = {}
         try:
             data = json.loads(post_data.decode("utf-8")) if post_data else {}
+            if not isinstance(data, dict):
+                data = {}
         except Exception:
             pass
 
         client_ip = self.client_address[0] if self.client_address else "未知"
 
+        # 机器 Token 权限边界校验
+        if self._is_machine_ok(query) and self.path not in (
+            "/api/incidents/feedback",
+            "/api/challenge/acknowledge",
+            "/api/set_mode",
+            "/api/sensors/event",
+        ):
+            self._send_json(403, {"error": "Forbidden", "message": "机器 token 仅支持状态读取、传感器上报、事件反馈/应答与模式切换"})
+            return
+
         # CSRF 防护：仅对携带 Cookie 的非 Bearer 浏览器请求校验来源
         auth_header = self.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer ") and self.headers.get("Cookie") and not _origin_ok(self.headers):
+        if (
+            not auth_header.startswith("Bearer ")
+            and not self._is_machine_ok(query)
+            and self.headers.get("Cookie")
+            and not _origin_ok(self.headers)
+        ):
             self._send_json(403, {"error": "Forbidden", "message": "跨站请求被拒绝"})
             return
 
@@ -587,7 +669,7 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
 
         # 1.3 阶段 2：小程序端/家属端事件确认与误报反馈回调 (需登录态或机器凭据)
         if self.path == "/api/incidents/feedback":
-            sess = self._get_session()
+            sess = self._get_session(query)
             if not sess:
                 self._send_json(401, {"error": "Unauthorized", "message": "未登录或登录已过期，请重新登录"})
                 return
@@ -623,13 +705,24 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
-        # 多传感器生态事件上报与融合联动 (公开/免登供 HA 与网关调用)
+        # 多传感器生态事件上报与融合联动 (带限速；当启用了 api_token 时要求认证或机器凭据)
         if self.path == "/api/sensors/event":
+            if (self.api_token or "").strip() and not self._get_session(query):
+                self._send_json(401, {"error": "Unauthorized", "message": "传感器事件上报需要有效登录态或 api_token"})
+                return
+            if not _rate_limiter.allow(f"sensor_ev:{client_ip}", 30, 10.0):
+                self._send_json(429, {"success": False, "message": "传感器事件上报过于频繁，请稍后再试"})
+                return
             device_id = str(data.get("device_id", "")).strip()
             event_name = str(data.get("event", data.get("state", ""))).strip()
             if not device_id or not event_name:
                 self._send_json(400, {"success": False, "message": "Missing device_id or event"})
                 return
+            ev_norm = event_name.lower()
+            if ev_norm in ("voice_dismiss", "dismiss", "button_press", "voice_help", "help", "sos", "sos_pressed"):
+                if not _rate_limiter.allow(f"sensor_crit:{client_ip}", 2, 5.0):
+                    self._send_json(429, {"success": False, "message": "关键语音/SOS操作过于频繁，请稍后再试"})
+                    return
             timestamp = data.get("timestamp")
             extra = data.get("extra") or {}
             if "room" in data:
@@ -649,7 +742,7 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # --- 以下 POST 操作均需要有效登录态 ---
-        sess = self._get_session()
+        sess = self._get_session(query)
         if not sess:
             self._send_json(401, {"error": "Unauthorized", "message": "未登录或登录已过期，请重新登录"})
             return
@@ -709,19 +802,22 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             if not _rate_limiter.allow(f"test_push:{sess['username']}", 1, 10.0):
                 self._send_json(429, {"success": False, "message": "测试推送过于频繁，请 10 秒后再试"})
                 return
-            token = data.get("pushplus_token", "").strip()
-            webhook_url = data.get("webhook_url", "").strip()
-            sms_webhook_url = data.get("sms_webhook_url", "").strip()
-            bark_key = data.get("bark_key", "").strip()
+            token = (data.get("pushplus_token") or "").strip()
+            serverchan_key = (data.get("serverchan_key") or "").strip()
+            webhook_url = (data.get("webhook_url") or "").strip()
+            sms_webhook_url = (data.get("sms_webhook_url") or "").strip()
+            bark_key = (data.get("bark_key") or "").strip()
             notifier = AlertNotifier(
                 pushplus_token=token if token else None,
+                serverchan_key=serverchan_key if serverchan_key else None,
                 webhook_url=webhook_url if webhook_url else None,
                 sms_webhook_url=sms_webhook_url if sms_webhook_url else None,
                 bark_key=bark_key if bark_key else None,
             )
-            if token or webhook_url or sms_webhook_url or bark_key:
+            if token or serverchan_key or webhook_url or sms_webhook_url or bark_key:
                 notifier.update_config(
                     pushplus_token=token if token else None,
+                    serverchan_key=serverchan_key if serverchan_key else None,
                     webhook_url=webhook_url if webhook_url else None,
                     sms_webhook_url=sms_webhook_url if sms_webhook_url else None,
                     bark_key=bark_key if bark_key else None,
@@ -731,9 +827,36 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                         SafeHaloWebHandler.on_notifier_updated(notifier)
                     except Exception as e:
                         logger.error(f"同步通知配置回调失败: {e}")
-            success = notifier.send_fall_alarm(room_name="家庭测试区域", details=f"管理员 [{sess['username']}] 点击控制台【发送测试告警】")
+            success = notifier.send_fall_alarm(
+                room_name="家庭测试区域",
+                details=f"管理员 [{sess['username']}] 点击控制台【发送测试告警】",
+                event_id="evt_test",
+            )
             log_event(f"用户 [{sess['username']}] 触发手机测试告警推送 (结果: {'成功' if success else '模拟发送'})")
             self._send_json(200, {"success": success, "message": "测试告警已发送并保存配置，请检查微信通知！"})
+            return
+
+        # 6.5 仅保存通知与灵敏度配置（不触发模拟告警，仅管理员）
+        if self.path == "/api/notifier/config":
+            if sess.get("role") != "admin":
+                self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可修改通知配置"})
+                return
+            notifier = AlertNotifier()
+            notifier.update_config(
+                pushplus_token=data["pushplus_token"] if "pushplus_token" in data else None,
+                serverchan_key=data["serverchan_key"] if "serverchan_key" in data else None,
+                webhook_url=data["webhook_url"] if "webhook_url" in data else None,
+                ha_webhook_url=data["ha_webhook_url"] if "ha_webhook_url" in data else None,
+                sms_webhook_url=data["sms_webhook_url"] if "sms_webhook_url" in data else None,
+                bark_key=data["bark_key"] if "bark_key" in data else None,
+            )
+            if hasattr(SafeHaloWebHandler, "on_notifier_updated") and SafeHaloWebHandler.on_notifier_updated:
+                try:
+                    SafeHaloWebHandler.on_notifier_updated(notifier)
+                except Exception as e:
+                    logger.error(f"同步通知配置回调失败: {e}")
+            log_event(f"管理员 [{sess['username']}] 更新了告警通知渠道配置")
+            self._send_json(200, {"success": True, "message": "告警通知配置已成功保存！"})
             return
 
         # 7. 手动触发定向排查 (所有登录成员均可关心老人)
@@ -752,9 +875,9 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             })
             return
 
-        # 8. 切换安防模式 (仅管理员权限)
+        # 8. 切换安防模式 (管理员或机器凭据权限)
         if self.path == "/api/set_mode":
-            if sess.get("role") != "admin":
+            if sess.get("role") not in ("admin", "machine"):
                 self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可修改安防守护模式"})
                 return
             if not _rate_limiter.allow(f"set_mode:{sess['username']}", 1, 2.0):
@@ -802,7 +925,6 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             if sess.get("role") != "admin":
                 self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可向硬件设备下发指令"})
                 return
-            data = self._read_json_body() or {}
             cmd = str(data.get("command", "")).strip()
             dev_id = str(data.get("device_id", "csi_probe_0")).strip()
             allowed = False
@@ -819,6 +941,11 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
                 self._send_json(400, {"success": False, "message": "Command not permitted in whitelist"})
                 return
 
+            if hasattr(SafeHaloWebHandler, "on_device_command") and SafeHaloWebHandler.on_device_command:
+                try:
+                    SafeHaloWebHandler.on_device_command(dev_id, cmd)
+                except Exception as e:
+                    logger.warning(f"[ACTUATION] 设备指令回调异常: {e}")
             logger.info(f"[ACTUATION] 管理员 [{sess['username']}] 向设备 [{dev_id}] 下发白名单指令: {cmd}")
             self._send_json(200, {
                 "success": True,
@@ -833,7 +960,6 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             if sess.get("role") != "admin":
                 self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可注册新传感器"})
                 return
-            data = self._read_json_body() or {}
             device_id = str(data.get("device_id", "")).strip()
             sensor_type = str(data.get("sensor_type", "other")).strip()
             name = str(data.get("name", device_id)).strip()
@@ -850,28 +976,35 @@ class SafeHaloWebHandler(http.server.SimpleHTTPRequestHandler):
             if sess.get("role") != "admin":
                 self._send_json(403, {"error": "Forbidden", "message": "权限不足，仅管理员可执行作动测试"})
                 return
-            data = self._read_json_body() or {}
             device_id = str(data.get("device_id", "")).strip()
             cmd = str(data.get("command", "")).strip()
             if not cmd:
                 self._send_json(400, {"success": False, "message": "Missing command"})
                 return
+            if hasattr(SafeHaloWebHandler, "on_sensor_actuate") and SafeHaloWebHandler.on_sensor_actuate:
+                try:
+                    SafeHaloWebHandler.on_sensor_actuate(device_id, cmd)
+                except Exception as e:
+                    logger.warning(f"[ACTUATE] 作动回调异常: {e}")
             logger.info(f"[ACTUATE] 管理员向生态设备 [{device_id}] 发送作动指令: {cmd}")
             self._send_json(200, {"success": True, "message": f"作动指令已下发: {cmd}", "device_id": device_id, "command": cmd})
             return
 
         self.send_error(404, "Not Found")
 
-def start_portal_server(port: int = 8080, host: str = "0.0.0.0", cookie_secure: bool = False):
+def start_portal_server(port: int = 8080, host: str = "0.0.0.0", cookie_secure: bool = False, api_token: str = ""):
     """
     启动 SafeHalo Web 配置与远程管理服务
     :param port: 监听端口 (默认 8080)
     :param host: 监听地址 (默认 0.0.0.0，允许局域网与远程穿透访问)
     :param cookie_secure: 经 HTTPS 反向代理部署时置 True，为会话 Cookie 添加 Secure 标记
+    :param api_token: 机器凭据 Token (可选)
     """
     SafeHaloWebHandler.cookie_secure = cookie_secure
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer((host, port), SafeHaloWebHandler) as httpd:
+    if api_token:
+        SafeHaloWebHandler.api_token = api_token
+    http.server.ThreadingHTTPServer.allow_reuse_address = True
+    with http.server.ThreadingHTTPServer((host, port), SafeHaloWebHandler) as httpd:
         print(f"\n{'='*65}")
         print(f"🌐 SafeHalo Web 远程管理控制台已启动: http://0.0.0.0:{port}")
         print(f"本地局域网访问: http://localhost:{port} 或 http://<路由器LAN_IP>:{port}")

@@ -52,6 +52,8 @@ class FilterResult:
 class NeighborSignalFilter:
     """多维邻居 Wi-Fi 信号干扰隔离与鉴别引擎"""
 
+    MAX_NEIGHBOR_REGISTRY = 256
+
     def __init__(
         self,
         home_bssids: Optional[List[str]] = None,      # 家中路由器与 Mesh AP 白名单 MAC 列表
@@ -197,6 +199,8 @@ class NeighborSignalFilter:
         if not mac:
             return
         if mac not in self._learning_samples:
+            if len(self._learning_samples) >= 64:
+                return
             self._learning_samples[mac] = []
         self._learning_samples[mac].append(rssi)
         self.learning_packet_counter += 1
@@ -247,8 +251,14 @@ class NeighborSignalFilter:
         return high_energy / low_energy
 
     def _record_neighbor(self, mac: str, rssi: int, reason: str, now: float):
-        """记录被隔离的邻居 Wi-Fi 信息"""
+        """记录被隔离的邻居 Wi-Fi 信息（带容量上限淘汰，防止路人随机探测 MAC 无限累积）"""
         if mac not in self.neighbor_registry:
+            if len(self.neighbor_registry) >= self.MAX_NEIGHBOR_REGISTRY:
+                victim_mac = min(
+                    self.neighbor_registry.keys(),
+                    key=lambda k: (self.neighbor_registry[k].packet_count, self.neighbor_registry[k].last_seen),
+                )
+                self.neighbor_registry.pop(victim_mac, None)
             self.neighbor_registry[mac] = NeighborNodeStats(
                 bssid=mac,
                 packet_count=1,

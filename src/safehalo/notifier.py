@@ -9,15 +9,20 @@ SafeHalo 移动端通知与告警模块 (notifier.py)
 
 import json
 import os
+import queue
+import threading
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 from .logger import logger
 
 NOTIFIER_CONFIG_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "logs", "notifier_config.json")
 )
+MAX_ASYNC_RETRIES = 5
+BACKOFF_SECS = (0.0, 2.0, 5.0, 15.0, 30.0, 60.0)
 
 class AlertNotifier:
     def __init__(
@@ -47,6 +52,12 @@ class AlertNotifier:
         self.bark_key = bark_key
         self._last_alert_room: str = ""
         self._last_alert_time: float = 0.0
+        self._lock = threading.RLock()
+        self._async_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue()
+        self._worker_started = False
+        self._storage_dir = os.path.dirname(self.config_file)
+        self._pending_file = os.path.join(self._storage_dir, "pending_notifications.jsonl")
+        self._dead_letter_file = os.path.join(self._storage_dir, "dead_letters.jsonl")
 
         # 若未显式传入，尝试加载已持久化的配置
         self._load_persisted_config()
@@ -105,8 +116,14 @@ class AlertNotifier:
         }
         try:
             os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
-            with open(self.config_file, "w", encoding="utf-8") as f:
+            tmp_file = f"{self.config_file}.tmp.{os.getpid()}"
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
+            try:
+                os.chmod(tmp_file, 0o600)
+            except OSError:
+                pass
+            os.replace(tmp_file, self.config_file)
             try:
                 os.chmod(self.config_file, 0o600)
             except OSError:
@@ -115,12 +132,166 @@ class AlertNotifier:
             logger.error(f"[Notifier] 保存通知配置失败: {e}")
         return payload
 
+    def any_channel_configured(self) -> bool:
+        return bool(
+            self.pushplus_token
+            or self.serverchan_key
+            or self.webhook_url
+            or self.ha_webhook_url
+            or self.sms_webhook_url
+            or self.bark_key
+        )
+
+    def start_async_worker(self):
+        """启动后台异步通知与退避重试工作线程（支持重启恢复与死信落盘）"""
+        with self._lock:
+            if self._worker_started:
+                return
+            self._worker_started = True
+        t = threading.Thread(target=self._async_worker_loop, daemon=True, name="NotifierRetryWorker")
+        t.start()
+
+    def _load_pending_items(self) -> List[Dict[str, Any]]:
+        if not os.path.exists(self._pending_file):
+            return []
+        items: List[Dict[str, Any]] = []
+        now = time.time()
+        try:
+            with open(self._pending_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    item = json.loads(line)
+                    item["next_retry_at"] = now
+                    items.append(item)
+        except Exception as e:
+            logger.warning(f"[Notifier] 读取待发队列失败: {e}")
+        return items
+
+    def _save_pending_items(self, items: List[Dict[str, Any]]):
+        try:
+            os.makedirs(self._storage_dir, exist_ok=True)
+            if not items:
+                if os.path.exists(self._pending_file):
+                    os.remove(self._pending_file)
+                return
+            tmp_path = f"{self._pending_file}.tmp.{os.getpid()}"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                for it in items:
+                    f.write(json.dumps(it, ensure_ascii=False) + "\n")
+            try:
+                os.chmod(tmp_path, 0o600)
+            except OSError:
+                pass
+            os.replace(tmp_path, self._pending_file)
+        except Exception as e:
+            logger.warning(f"[Notifier] 保存待发队列失败: {e}")
+
+    def _append_dead_letter(self, item: Dict[str, Any], reason: str):
+        try:
+            os.makedirs(self._storage_dir, exist_ok=True)
+            dead = {
+                "id": item.get("id", ""),
+                "dropped_at": time.time(),
+                "attempts": item.get("attempts", 0),
+                "reason": reason,
+                "task": item,
+            }
+            with open(self._dead_letter_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(dead, ensure_ascii=False) + "\n")
+            try:
+                os.chmod(self._dead_letter_file, 0o600)
+            except OSError:
+                pass
+        except Exception as e:
+            logger.warning(f"[Notifier] 写入死信队列失败: {e}")
+
+    def _dispatch_task(self, task: Dict[str, Any]) -> bool:
+        kind = task.get("kind", "")
+        kw = dict(task.get("kwargs") or {})
+        if kind == "fall":
+            return self.send_fall_alarm(**kw)
+        if kind == "intruder":
+            return self.send_intruder_alarm(**kw)
+        if kind == "routine":
+            return self.send_routine_anomaly_alert(**kw)
+        if kind == "custom":
+            return self.send_custom_notification(**kw)
+        return True
+
+    def _async_worker_loop(self):
+        pending_items = self._load_pending_items()
+        while True:
+            try:
+                task = self._async_queue.get(timeout=0.5)
+                ok = self._dispatch_task(task)
+                if not ok and self.any_channel_configured():
+                    now = time.time()
+                    pending_items.append({
+                        "id": task.get("id") or f"notif_{int(now * 1000)}",
+                        "kind": task.get("kind"),
+                        "kwargs": task.get("kwargs"),
+                        "attempts": 1,
+                        "created_at": now,
+                        "next_retry_at": now + BACKOFF_SECS[1],
+                    })
+                    self._save_pending_items(pending_items)
+            except queue.Empty:
+                pass
+            except Exception as e:
+                logger.error(f"[Notifier] 异步分发异常: {e}")
+
+            if pending_items:
+                now = time.time()
+                modified = False
+                remaining: List[Dict[str, Any]] = []
+                for item in pending_items:
+                    if now >= item.get("next_retry_at", 0.0):
+                        # 重试时绕过 30 秒同房间防抖拦截
+                        if item.get("kind") == "fall":
+                            self._last_alert_time = 0.0
+                        if self._dispatch_task(item):
+                            modified = True
+                        else:
+                            attempts = int(item.get("attempts", 1)) + 1
+                            item["attempts"] = attempts
+                            if attempts >= MAX_ASYNC_RETRIES:
+                                self._append_dead_letter(item, "max_retries_exceeded")
+                                modified = True
+                            else:
+                                idx = min(attempts, len(BACKOFF_SECS) - 1)
+                                item["next_retry_at"] = now + BACKOFF_SECS[idx]
+                                remaining.append(item)
+                                modified = True
+                    else:
+                        remaining.append(item)
+                pending_items = remaining
+                if modified:
+                    self._save_pending_items(pending_items)
+
+    def enqueue_fall_alarm(self, **kwargs):
+        self.start_async_worker()
+        self._async_queue.put({"id": kwargs.get("event_id") or "", "kind": "fall", "kwargs": kwargs})
+
+    def enqueue_intruder_alarm(self, **kwargs):
+        self.start_async_worker()
+        self._async_queue.put({"id": "", "kind": "intruder", "kwargs": kwargs})
+
+    def enqueue_routine_anomaly_alert(self, **kwargs):
+        self.start_async_worker()
+        self._async_queue.put({"id": "", "kind": "routine", "kwargs": kwargs})
+
+    def enqueue_custom_notification(self, **kwargs):
+        self.start_async_worker()
+        self._async_queue.put({"id": "", "kind": "custom", "kwargs": kwargs})
+
     def send_fall_alarm(
         self,
         room_name: str = "老人卧室",
         confidence: str = "高",
         details: str = "",
-        bpm: float = 18.0,
+        bpm: float = 0.0,
         event_id: str = "",
         household_id: str = "H01",
     ) -> bool:
@@ -143,7 +314,7 @@ class AlertNotifier:
 
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         title = f"🚨【紧急预警】SafeHalo 检测到疑似跌倒！"
-        bpm_line = f"- **呼吸估计**: {bpm:.0f} bpm\n" if bpm > 0 else ""
+        bpm_line = f"- **呼吸估计**: {bpm:.0f} bpm\n" if bpm > 0 else "- **呼吸估计**: 未检出清晰呼吸节律，请立即核实\n"
         evt_line = f"- **事件编号**: {event_id}\n" if event_id else ""
         content = (
             f"### 紧急安全事件通知\n\n"
@@ -198,7 +369,8 @@ class AlertNotifier:
 
         # 6. iOS Bark 关键警报强提醒 (突破静音/勿扰)
         if self.bark_key:
-            bark_body = f"监测位置: {room_name}\n置信度: {confidence} | 呼吸: {bpm:.0f} bpm\n事件编号: {event_id}\n{details}\n请立即确认老人安全！"
+            bark_bpm = f"{bpm:.0f} bpm" if bpm > 0 else "未检出清晰呼吸节律"
+            bark_body = f"监测位置: {room_name}\n置信度: {confidence} | 呼吸: {bark_bpm}\n事件编号: {event_id}\n{details}\n请立即确认老人安全！"
             success = self._send_bark(title, bark_body, critical=True, sound="alarm") or success
 
         if not (self.pushplus_token or self.serverchan_key or self.webhook_url or self.ha_webhook_url or self.sms_webhook_url or self.bark_key):
@@ -279,6 +451,34 @@ class AlertNotifier:
 
         return success
 
+    def send_custom_notification(self, title: str, content: str, critical: bool = True) -> bool:
+        """发送通用安全/生态联动通知"""
+        success = False
+        if self.pushplus_token:
+            success = self._send_pushplus(title, content) or success
+        if self.serverchan_key:
+            success = self._send_serverchan(title, content) or success
+        if self.webhook_url:
+            success = self._send_webhook(title, content) or success
+        if self.ha_webhook_url:
+            success = self._send_ha_webhook(
+                event="security_intrusion",
+                room_name="家庭监控区域",
+                confidence="高",
+                details=content,
+            ) or success
+        if self.bark_key:
+            success = self._send_bark(
+                title,
+                content,
+                critical=critical,
+                sound="alarm" if critical else "anticipate",
+            ) or success
+        if not self.any_channel_configured():
+            logger.info(f"[Notifier 本地模拟通知] {title} - {content}")
+            return True
+        return success
+
     def _send_bark(
         self,
         title: str,
@@ -304,7 +504,7 @@ class AlertNotifier:
         return self._http_post_json(url, payload)
 
     def _send_pushplus(self, title: str, markdown_content: str) -> bool:
-        url = "http://www.pushplus.plus/send"
+        url = "https://www.pushplus.plus/send"
         payload = {
             "token": self.pushplus_token,
             "title": title,

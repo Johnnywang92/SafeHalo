@@ -97,6 +97,8 @@ class SensorDevice:
 class SensorFusionEcosystem:
     """多模态传感器生态融合中心"""
 
+    MAX_REGISTERED_DEVICES = 64
+
     def __init__(
         self,
         bathroom_timeout_seconds: float = 1200.0,  # 默认卫生间关门滞留超时 20 分钟
@@ -204,9 +206,11 @@ class SensorFusionEcosystem:
             extra = extra or {}
             event_norm = event_name.lower().strip()
 
-            # 1. 查找或就地自动注册设备
+            # 1. 查找或就地自动注册设备（带容量上限保护，防止随机 device_id 洪泛耗尽内存）
             dev = self.devices.get(device_id)
             if not dev:
+                if len(self.devices) >= self.MAX_REGISTERED_DEVICES:
+                    return LinkageAction.NONE, "已达设备自动注册上限，忽略未知传感器"
                 st = SensorType.OTHER
                 if "door" in device_id:
                     st = SensorType.DOOR

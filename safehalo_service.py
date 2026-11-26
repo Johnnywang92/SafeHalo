@@ -32,7 +32,7 @@ from src.safehalo.dual_fusion_engine import DualSensorFusionEngine, FusedState, 
 from src.safehalo.ha_discovery import HomeAssistantBridge
 from src.safehalo.routine_monitor import RoutineMonitorEngine, RoutineAnomalyEvent
 from src.safehalo.multilink_fusion import MultiLinkFusionEngine, FusedSpatialResult
-import socketserver
+from http.server import ThreadingHTTPServer
 
 class SafeHaloSupervisor:
     def __init__(
@@ -58,6 +58,8 @@ class SafeHaloSupervisor:
         object_confirm_min_intervals: int = 3,
         enable_peak_regularity: bool = False,
         peak_regularity_cv: float = 0.35,
+        api_token: str = "",
+        cookie_secure: bool = False,
     ):
         self.web_port = web_port
         self.web_host = web_host
@@ -79,13 +81,17 @@ class SafeHaloSupervisor:
         self.object_confirm_min_intervals = object_confirm_min_intervals
         self.enable_peak_regularity = enable_peak_regularity
         self.peak_regularity_cv = peak_regularity_cv
+        self.api_token = api_token or os.environ.get("SAFEHALO_API_TOKEN", "")
+        self.cookie_secure = cookie_secure
 
         self.running = True
         self._active_csi_serial = None
+        self._active_csi_path = serial_port or "auto"
         self.notifier = AlertNotifier(
             pushplus_token=pushplus_token,
             ha_webhook_url=ha_webhook,
         )
+        self.notifier.start_async_worker()
         self.httpd = None
 
         # Home Assistant 自动发现桥接器 (带下行指令处理回调)
@@ -178,7 +184,12 @@ class SafeHaloSupervisor:
         SafeHaloWebHandler.on_notifier_updated = self._on_web_notifier_updated
         SafeHaloWebHandler.on_false_alarm_feedback = self._on_web_false_alarm_feedback
         SafeHaloWebHandler.on_challenge_acknowledge = self._on_web_challenge_acknowledge
+        SafeHaloWebHandler.on_device_command = self._on_web_device_command
+        SafeHaloWebHandler.on_sensor_actuate = self._on_speaker_actuate
+        SafeHaloWebHandler.devices_provider = self._get_devices_list
         SafeHaloWebHandler.routine_history_provider = self.routine_monitor.get_recent_history
+        SafeHaloWebHandler.cookie_secure = self.cookie_secure
+        SafeHaloWebHandler.api_token = self.api_token
         shared_system_state["auto_calibration"] = self.engine.detector.auto_calibrator.get_status_summary()
 
     def _on_placement_updated(self, cfg, params):
@@ -209,9 +220,53 @@ class SafeHaloSupervisor:
     def _on_web_notifier_updated(self, updated_notifier: AlertNotifier):
         self.notifier.update_config(
             pushplus_token=updated_notifier.pushplus_token,
+            serverchan_key=updated_notifier.serverchan_key,
             webhook_url=updated_notifier.webhook_url,
+            ha_webhook_url=updated_notifier.ha_webhook_url,
             sms_webhook_url=updated_notifier.sms_webhook_url,
+            bark_key=updated_notifier.bark_key,
         )
+
+    def _on_web_device_command(self, device_id: str, cmd: str) -> bool:
+        if cmd.startswith("BURST_RATE:"):
+            try:
+                self._on_request_burst_rate(int(cmd.split(":", 1)[1]))
+                return True
+            except ValueError:
+                return False
+        if self._active_csi_serial and hasattr(self._active_csi_serial, "write"):
+            try:
+                self._active_csi_serial.write(f"{cmd}\n".encode("utf-8"))
+                return True
+            except Exception as e:
+                logger.debug(f"[Actuation] 串口写入设备指令失败: {e}")
+        return False
+
+    def _get_devices_list(self):
+        devices = [
+            {
+                "id": "csi_probe_0",
+                "type": "demo" if self.demo_mode else "serial",
+                "role": "sensor_actuator",
+                "path": "demo" if self.demo_mode else (self._active_csi_path or self.serial_port or "auto"),
+                "baud": self.baud,
+                "status": "online" if (self.demo_mode or self._active_csi_serial is not None) else "offline",
+                "last_seen": round(time.time(), 1) if (self.demo_mode or self._active_csi_serial is not None) else 0.0,
+            }
+        ]
+        if self.radar_serial:
+            devices.append(
+                {
+                    "id": "radar_master",
+                    "type": "serial",
+                    "role": "sensor",
+                    "path": self.radar_serial,
+                    "baud": self.radar_baud,
+                    "status": "online" if shared_system_state.get("radar_online") else "offline",
+                    "last_seen": round(time.time(), 1) if shared_system_state.get("radar_online") else 0.0,
+                }
+            )
+        return devices
 
     def _on_web_false_alarm_feedback(self, reason: str):
         return self.placement_adapter.record_false_alarm_feedback(
@@ -265,18 +320,22 @@ class SafeHaloSupervisor:
     def _on_ecosystem_fall_confirmed(self, room: str, confidence: float, details: str):
         """多传感器生态（智能音箱呼救 / 卫生间滞留 / 紧急 SOS）触发确诊告警"""
         logger.log_fall_confirmed(details, bpm=0.0, confidence=confidence)
-        self.incident_manager.record_incident(
+        inc = self.incident_manager.record_incident(
             room_name=room,
+            event_type="FALL_ALARM",
             confidence=confidence,
             details=details,
             respiration_bpm=0.0,
+            household_id=self.pilot_manager.active_household_id,
         )
         shared_system_state["state"] = "FALL_CONFIRMED"
-        self.notifier.send_fall_alarm(
+        self.notifier.enqueue_fall_alarm(
             room_name=room,
-            confidence="高" if confidence >= 0.8 else "中",
+            confidence=f"{int(confidence * 100)}%",
             details=details,
             bpm=0.0,
+            event_id=inc.event_id if inc else "",
+            household_id=self.pilot_manager.active_household_id,
         )
         if self.ha_bridge and self.ha_bridge.client and self.ha_bridge.client.connected:
             self.ha_bridge.client.publish("safehalo/binary_sensor/fall/state", "ON")
@@ -292,7 +351,7 @@ class SafeHaloSupervisor:
     def _on_ecosystem_security_alert(self, alert_type: str, details: str, meta: dict):
         """多传感器生态（门磁外围突破 / PIR 入侵确认）触发安防报警"""
         logger.log_event("SECURITY_INTRUSION", f"{alert_type}: {details}", level="ALARM")
-        self.notifier.send_custom_notification(
+        self.notifier.enqueue_custom_notification(
             title="【SafeHalo】安防入侵警报",
             content=details,
         )
@@ -320,10 +379,7 @@ class SafeHaloSupervisor:
         logger.info(f"收到系统信号 ({signum})，正在优雅关闭 SafeHalo 服务...")
         self.running = False
         if self.httpd:
-            try:
-                self.httpd.shutdown()
-            except Exception:
-                pass
+            threading.Thread(target=self.httpd.shutdown, daemon=True).start()
         sys.exit(0)
 
     def _on_state_change(self, old_state: HumanState, new_state: HumanState, features: CSIFeatures):
@@ -332,6 +388,7 @@ class SafeHaloSupervisor:
         shared_system_state["variance"] = features.mean_variance
         shared_system_state["jitter"] = features.packet_interval_jitter
         shared_system_state["sample_rate"] = features.sample_rate_hz
+        shared_system_state["spr"] = round(self.engine.detector.latest_spr, 4)
         shared_system_state["is_pet"] = (new_state == HumanState.PET_ACTIVITY)
 
         # 联动安防布防引擎
@@ -364,7 +421,7 @@ class SafeHaloSupervisor:
 
     def _on_routine_anomaly(self, evt: RoutineAnomalyEvent):
         """老人作息异常偏离通报 (晨间不起床、日间长时间静止无活动、夜间起夜过多)"""
-        self.notifier.send_routine_anomaly_alert(
+        self.notifier.enqueue_routine_anomaly_alert(
             title=evt.title,
             description=evt.description,
             severity=evt.severity,
@@ -373,8 +430,10 @@ class SafeHaloSupervisor:
 
     def _on_fall_alarm(self, features: CSIFeatures, verdict=None):
         room = shared_system_state.get("multilink", {}).get("active_room") or self.placement_adapter.current_config.room_name
-        confidence = float(getattr(verdict, "confidence", 0.0) or 0.96)
-        bpm = float(getattr(verdict, "respiration_bpm", 0.0) or 18.0)
+        raw_conf = getattr(verdict, "confidence", None) if verdict is not None else None
+        confidence = float(raw_conf) if (raw_conf is not None and raw_conf > 0) else 0.90
+        raw_bpm = getattr(verdict, "respiration_bpm", None) if verdict is not None else None
+        bpm = float(raw_bpm) if raw_bpm is not None else 0.0
         details = getattr(verdict, "details", "") or f"经历剧烈冲击→持续静止→本地质询无应答，均值方差: {features.mean_variance:.6f}"
         logger.log_fall_confirmed(
             details=details,
@@ -391,7 +450,7 @@ class SafeHaloSupervisor:
             household_id=self.pilot_manager.active_household_id,
         )
         event_id = inc.event_id if inc else ""
-        self.notifier.send_fall_alarm(
+        self.notifier.enqueue_fall_alarm(
             room_name=room,
             confidence=f"{int(confidence * 100)}%",
             details="倒地后经声光质询无应答且长时间未探测到自主起身活动",
@@ -401,9 +460,11 @@ class SafeHaloSupervisor:
         )
 
     def _on_intruder_alarm(self, alert_level, msg: str, features: CSIFeatures):
-        logger.log_security_intrusion("ARMED_AWAY", features.diff_energy)
-        self.notifier.send_intruder_alarm(
-            room_name="家庭监控区域",
+        mode_name = self.security_guard.mode.value
+        room = self.placement_adapter.current_config.room_name or "家庭监控区域"
+        logger.log_security_intrusion(mode_name, features.diff_energy)
+        self.notifier.enqueue_intruder_alarm(
+            room_name=room,
             details=msg
         )
 
@@ -444,15 +505,28 @@ class SafeHaloSupervisor:
             )
 
     def _on_fused_fall_alarm(self, res: FusedPerceptionResult):
+        bpm = res.radar_respiration_bpm if res.radar_respiration_bpm > 0 else 0.0
         logger.log_fall_confirmed(
             details=f"双模态融合告警: {res.decision_reason}",
-            bpm=res.radar_respiration_bpm if res.radar_respiration_bpm > 0 else 18.0,
+            bpm=bpm,
             confidence=res.fused_confidence,
         )
-        self.notifier.send_fall_alarm(
-            room_name="双模全域监测覆盖区",
+        room = self.placement_adapter.current_config.room_name or "双模全域监测覆盖区"
+        inc = self.incident_manager.record_incident(
+            room_name=room,
+            event_type="FALL_ALARM",
+            confidence=res.fused_confidence,
+            respiration_bpm=bpm,
+            details=f"【双模确诊】{res.decision_reason} (测定高度 Z={res.radar_z:.2f}m)",
+            household_id=self.pilot_manager.active_household_id,
+        )
+        self.notifier.enqueue_fall_alarm(
+            room_name=room,
             confidence=f"{int(res.fused_confidence * 100)}%",
-            details=f"【双模确诊】{res.decision_reason} (测定高度 Z={res.radar_z:.2f}m)"
+            details=f"【双模确诊】{res.decision_reason} (测定高度 Z={res.radar_z:.2f}m)",
+            bpm=bpm,
+            event_id=inc.event_id if inc else "",
+            household_id=self.pilot_manager.active_household_id,
         )
 
     def start_radar_thread(self):
@@ -499,11 +573,11 @@ class SafeHaloSupervisor:
         t.start()
 
     def start_web_server_thread(self):
-        """在独立后台线程启动 Web 控制台与远程管理服务"""
+        """在独立后台线程启动多线程 Web 控制台与远程管理服务"""
         def _run_server():
-            socketserver.TCPServer.allow_reuse_address = True
+            ThreadingHTTPServer.allow_reuse_address = True
             try:
-                self.httpd = socketserver.TCPServer((self.web_host, self.web_port), SafeHaloWebHandler)
+                self.httpd = ThreadingHTTPServer((self.web_host, self.web_port), SafeHaloWebHandler)
                 logger.info(f"SafeHalo Web 门户已在 http://{self.web_host}:{self.web_port} 启动")
                 self.httpd.serve_forever()
             except Exception as e:
@@ -573,6 +647,7 @@ class SafeHaloSupervisor:
 
             logger.info(f"硬件串口已接通: {port}，Wi-Fi CSI 实时安全守护已就绪！")
             self._active_csi_serial = ser
+            self._active_csi_path = port
             shared_system_state["state"] = "CALIBRATING"
 
             try:
@@ -608,6 +683,7 @@ class SafeHaloSupervisor:
                         shared_system_state["variance"] = feats.mean_variance
                         shared_system_state["sample_rate"] = feats.sample_rate_hz
                         shared_system_state["jitter"] = feats.packet_interval_jitter
+                        shared_system_state["spr"] = round(self.engine.detector.latest_spr, 4)
 
                     if self.engine.total_packets_received % 80 == 0:
                         shared_system_state["neighbor_filter"] = self.engine.neighbor_filter.get_spectrum_analysis()
@@ -674,6 +750,10 @@ def main():
                         help="(P0-3) 启用阶段一呼吸峰间隔规整度与准周期性抗噪检验 (默认关闭)")
     parser.add_argument("--peak-regularity-cv", type=float, default=0.35,
                         help="阶段一呼吸峰间隔变异系数 (CV) 门限 (默认 0.35)")
+    parser.add_argument("--api-token", type=str, default=os.environ.get("SAFEHALO_API_TOKEN", ""),
+                        help="机器接口鉴权 Token (可选，也可通过 SAFEHALO_API_TOKEN 环境变量配置)")
+    parser.add_argument("--cookie-secure", action="store_true", default=False,
+                        help="经 HTTPS 反向代理部署时为会话 Cookie 添加 Secure 标记")
 
     args = parser.parse_args()
 
@@ -699,6 +779,8 @@ def main():
         object_confirm_min_intervals=args.object_confirm_min_intervals,
         enable_peak_regularity=args.enable_peak_regularity,
         peak_regularity_cv=args.peak_regularity_cv,
+        api_token=args.api_token,
+        cookie_secure=args.cookie_secure,
     )
 
     supervisor.start()

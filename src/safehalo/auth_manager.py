@@ -14,11 +14,14 @@ import json
 import time
 import secrets
 import hashlib
+import threading
 from typing import Dict, List, Optional, Tuple, Any
 from .logger import logger
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data"))
 USERS_FILE = os.path.join(DATA_DIR, "users.json")
+DUMMY_SALT_HEX = "00112233445566778899aabbccddeeff"
+MAX_ACTIVE_SESSIONS = 512
 
 def hash_password(password: str, salt_hex: Optional[str] = None) -> Tuple[str, str]:
     """
@@ -56,6 +59,7 @@ class AuthManager:
 
     def __init__(self, data_file: str = USERS_FILE):
         self.data_file = data_file
+        self._lock = threading.RLock()
         os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
 
         # 内存 Session 表: token -> { "username": ..., "role": ..., "created_at": ..., "expires_at": ... }
@@ -72,52 +76,86 @@ class AuthManager:
         return cls._instance
 
     def _load_or_init_users(self):
-        if not os.path.exists(self.data_file):
-            # 初始化默认 admin 用户
-            default_pwd = "admin123"
-            pwd_hash, salt = hash_password(default_pwd)
-            initial_users = {
-                "admin": {
-                    "username": "admin",
-                    "display_name": "系统管理员",
-                    "role": "admin",
-                    "password_hash": pwd_hash,
-                    "salt": salt,
-                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "last_login": None,
-                    "must_change_password": True
+        with self._lock:
+            if not os.path.exists(self.data_file):
+                # 初始化默认 admin 用户
+                default_pwd = "admin123"
+                pwd_hash, salt = hash_password(default_pwd)
+                initial_users = {
+                    "admin": {
+                        "username": "admin",
+                        "display_name": "系统管理员",
+                        "role": "admin",
+                        "password_hash": pwd_hash,
+                        "salt": salt,
+                        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "last_login": None,
+                        "must_change_password": True
+                    }
                 }
-            }
-            self._save_users(initial_users)
-            logger.info("已生成默认管理员账号: admin，初始密码: admin123 (请首次登录后立即修改)")
+                self._save_users(initial_users)
+                logger.info("已生成默认管理员账号: admin，初始密码: admin123 (请首次登录后立即修改)")
+            else:
+                try:
+                    with open(self.data_file, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    if not isinstance(loaded, dict) or not loaded:
+                        logger.error(f"用户数据库为空或结构异常，拒绝重置默认密码: {self.data_file}")
+                except Exception as e:
+                    logger.error(f"用户数据库损坏，拒绝覆盖默认管理员密码，请人工恢复: {e}")
 
     def _read_users(self) -> Dict[str, Dict]:
-        try:
-            with open(self.data_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"读取用户数据失败: {e}")
-            return {}
+        with self._lock:
+            try:
+                with open(self.data_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data if isinstance(data, dict) else {}
+            except Exception as e:
+                logger.error(f"读取用户数据失败: {e}")
+                return {}
 
     def _save_users(self, users: Dict[str, Dict]):
-        try:
-            with open(self.data_file, "w", encoding="utf-8") as f:
-                json.dump(users, f, ensure_ascii=False, indent=2)
+        with self._lock:
             try:
-                os.chmod(self.data_file, 0o600)
-            except OSError:
-                pass
-        except Exception as e:
-            logger.error(f"保存用户数据失败: {e}")
+                os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
+                tmp_file = f"{self.data_file}.tmp.{os.getpid()}"
+                with open(tmp_file, "w", encoding="utf-8") as f:
+                    json.dump(users, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except OSError:
+                        pass
+                try:
+                    os.chmod(tmp_file, 0o600)
+                except OSError:
+                    pass
+                os.replace(tmp_file, self.data_file)
+                try:
+                    os.chmod(self.data_file, 0o600)
+                except OSError:
+                    pass
+            except Exception as e:
+                logger.error(f"保存用户数据失败: {e}")
+
+    def _prune_sessions_locked(self, now: float):
+        expired = [t for t, s in self.active_sessions.items() if now > s.get("expires_at", 0)]
+        for t in expired:
+            self.active_sessions.pop(t, None)
+        if len(self.active_sessions) >= MAX_ACTIVE_SESSIONS:
+            oldest = sorted(self.active_sessions.items(), key=lambda kv: kv[1].get("created_at", 0))
+            for t, _ in oldest[: len(self.active_sessions) - MAX_ACTIVE_SESSIONS + 1]:
+                self.active_sessions.pop(t, None)
 
     # 认证与会话管理
     def login(self, username: str, password: str, client_ip: str = "") -> Tuple[bool, str, Optional[Dict]]:
         """
-        验证用户凭据并生成 Session Token
+        验证用户凭据并生成 Session Token（锁外执行 PBKDF2，并对未知用户执行常量时间假哈希防枚举）
         """
         users = self._read_users()
         user = users.get(username)
         if not user:
+            hash_password(password, DUMMY_SALT_HEX)
             logger.warning(f"登录失败: 用户不存在 [{username}] (来源: {client_ip})")
             return False, "用户名或密码错误", None
 
@@ -136,34 +174,38 @@ class AuthManager:
             "created_at": now,
             "expires_at": now + self.session_duration_seconds
         }
-        self.active_sessions[token] = session_info
-
-        # 更新用户最后登录时间
-        user["last_login"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        self._save_users(users)
+        with self._lock:
+            self._prune_sessions_locked(now)
+            self.active_sessions[token] = session_info
+            latest_users = self._read_users()
+            if username in latest_users:
+                latest_users[username]["last_login"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                self._save_users(latest_users)
 
         logger.info(f"用户成功登录: [{username}] (角色: {user['role']}, 来源: {client_ip})")
         return True, token, session_info
 
     def logout(self, token: str):
-        if token in self.active_sessions:
-            username = self.active_sessions[token]["username"]
-            del self.active_sessions[token]
-            logger.info(f"用户已登出: [{username}]")
+        with self._lock:
+            if token in self.active_sessions:
+                username = self.active_sessions[token]["username"]
+                del self.active_sessions[token]
+                logger.info(f"用户已登出: [{username}]")
 
     def validate_session(self, token: Optional[str]) -> Optional[Dict]:
         """
         检验 Session 是否有效且未过期
         """
-        if not token or token not in self.active_sessions:
+        if not token:
             return None
-
-        sess = self.active_sessions[token]
-        if time.time() > sess["expires_at"]:
-            del self.active_sessions[token]
-            return None
-
-        return sess
+        with self._lock:
+            sess = self.active_sessions.get(token)
+            if not sess:
+                return None
+            if time.time() > sess["expires_at"]:
+                del self.active_sessions[token]
+                return None
+            return dict(sess)
 
     # 用户管理 CRUD (仅管理员权限)
     def list_users(self) -> List[Dict]:
@@ -229,15 +271,16 @@ class AuthManager:
                 return False, "原密码错误"
 
         pwd_hash, salt = hash_password(new_password)
-        user["password_hash"] = pwd_hash
-        user["salt"] = salt
-        user["must_change_password"] = False
-        self._save_users(users)
+        with self._lock:
+            user["password_hash"] = pwd_hash
+            user["salt"] = salt
+            user["must_change_password"] = False
+            self._save_users(users)
 
-        # 密码修改后注销该用户其他所有旧会话
-        for t, s in list(self.active_sessions.items()):
-            if s["username"] == username:
-                del self.active_sessions[t]
+            # 密码修改后注销该用户其他所有旧会话
+            for t, s in list(self.active_sessions.items()):
+                if s["username"] == username:
+                    del self.active_sessions[t]
 
         logger.info(f"用户已成功修改密码: [{username}]")
         return True, "密码修改成功，请重新登录"
@@ -247,22 +290,23 @@ class AuthManager:
         if username == operator_username:
             return False, "无法删除当前登录的账号"
 
-        users = self._read_users()
-        if username not in users:
-            return False, "用户不存在"
+        with self._lock:
+            users = self._read_users()
+            if username not in users:
+                return False, "用户不存在"
 
-        # 检查是否是最后一个 admin
-        admin_count = sum(1 for u in users.values() if u["role"] == "admin")
-        if users[username]["role"] == "admin" and admin_count <= 1:
-            return False, "系统必须保留至少一个管理员账号"
+            # 检查是否是最后一个 admin
+            admin_count = sum(1 for u in users.values() if u["role"] == "admin")
+            if users[username]["role"] == "admin" and admin_count <= 1:
+                return False, "系统必须保留至少一个管理员账号"
 
-        del users[username]
-        self._save_users(users)
+            del users[username]
+            self._save_users(users)
 
-        # 清除其会话
-        for t, s in list(self.active_sessions.items()):
-            if s["username"] == username:
-                del self.active_sessions[t]
+            # 清除其会话
+            for t, s in list(self.active_sessions.items()):
+                if s["username"] == username:
+                    del self.active_sessions[t]
 
         logger.info(f"管理员 [{operator_username}] 删除了用户账号: [{username}]")
         return True, "用户已成功删除"

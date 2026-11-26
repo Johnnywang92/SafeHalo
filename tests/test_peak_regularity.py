@@ -171,3 +171,34 @@ def test_irregular_peaks_rejected_by_cv():
     inspector.respiration_wave_buffer = wave
     has_resp, _ = inspector._evaluate_ground_respiration()
     assert has_resp is False
+
+
+def test_100hz_burst_rate_respiration_confirmed():
+    """
+    Verifies that at 100Hz burst rate (500 frames over 5s), the time-aware window
+    retains full respiration cycles and confirms VERDICT_FALL accurately.
+    """
+    inspector = TargetedFallInspector(
+        inspection_duration_seconds=5.0,
+        enable_peak_regularity=True,
+        peak_regularity_cv=0.35,
+    )
+    inspector.trigger_inspection(timestamp=0.0, trigger_reason="100Hz提频测试")
+
+    rng = random.Random(2026)
+    dt = 0.01  # 100Hz
+    res = None
+    for i in range(500):
+        t = (i + 1) * dt
+        amps = generate_human_breathing_frame(t=t, bpm=18.0, amp=0.8, noise_std=0.02, rng=rng)
+        res = inspector.update_frame(
+            timestamp=t,
+            diff_energy=1.1,
+            base_diff=1.0,
+            subcarrier_amplitudes=amps,
+        )
+
+    assert res is not None
+    assert res.state == TargetedInspectionState.VERDICT_FALL
+    assert res.has_respiration is True
+    assert 12.0 <= res.respiration_bpm <= 26.0

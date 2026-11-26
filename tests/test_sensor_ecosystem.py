@@ -259,3 +259,12 @@ def test_safehalo_supervisor_sensor_ecosystem_integration():
     incidents = supervisor.incident_manager.list_recent_incidents(1)
     assert len(incidents) >= 1
     assert incidents[0]["room_name"] == "卫生间"
+
+    # 5. 验证前端模式别名映射 (AWAY_SECURITY / NIGHT_GUARD)
+    supervisor._on_web_mode_changed("AWAY_SECURITY")
+    assert supervisor.security_guard.mode == SecurityMode.ARMED_AWAY
+    supervisor._on_web_mode_changed("NIGHT_GUARD")
+    assert supervisor.security_guard.mode == SecurityMode.ARMED_NIGHT
+
+    # 6. 验证生态安全告警不会触发 AttributeError
+    supervisor._on_ecosystem_security_alert("PERIMETER_BREACH", "测试门磁入侵", {})

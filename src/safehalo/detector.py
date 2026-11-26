@@ -78,6 +78,7 @@ class RouterCSIDetector:
 
         # 宠物抗干扰滤波器
         self.pet_filter = PetImmunityFilter()
+        self.latest_spr: float = 0.0
 
         # 定向深度排查与主动核验引擎
         self.targeted_inspector = TargetedFallInspector(
@@ -155,6 +156,7 @@ class RouterCSIDetector:
             diff_energy=features.diff_energy,
             base_diff=self.base_diff,
         )
+        self.latest_spr = pet_res.subcarrier_participation
 
         # 3. 跌倒关键冲击与时序判定
         # 真正的跌倒由两段组成:

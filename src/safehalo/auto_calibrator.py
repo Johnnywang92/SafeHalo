@@ -90,8 +90,14 @@ class ContinuousAutoCalibrator:
     def _save_model(self):
         try:
             self.state.last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            with open(self.model_file, "w", encoding="utf-8") as f:
+            tmp_file = f"{self.model_file}.tmp.{os.getpid()}"
+            with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(asdict(self.state), f, ensure_ascii=False, indent=2)
+            try:
+                os.chmod(tmp_file, 0o600)
+            except OSError:
+                pass
+            os.replace(tmp_file, self.model_file)
         except Exception as e:
             logger.error(f"[AutoCalibrator] 保存基线模型失败: {e}")
 

@@ -37,7 +37,11 @@ class RouterCSIEngine:
         :param enable_peak_regularity: (P0-3) 是否启用呼吸峰间隔规整度与准周期性抗噪检验
         :param peak_regularity_cv: 呼吸峰间隔变异系数 (CV) 门限
         """
-        self.router_mac = router_mac.lower().replace("-", ":") if router_mac else None
+        cleaned_mac = router_mac.strip().lower().replace("-", ":") if router_mac else ""
+        if cleaned_mac in ("", "auto"):
+            self.router_mac = None
+        else:
+            self.router_mac = cleaned_mac
         self.parser = CSIParser()
         self.neighbor_filter = NeighborSignalFilter(
             home_bssids=[self.router_mac] if self.router_mac else None,
