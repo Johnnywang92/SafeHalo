@@ -1124,25 +1124,34 @@ fn handle_post(
                     let d = jstr(&data, "device_id");
                     if d.is_empty() { "csi_probe_0".into() } else { d }
                 };
-                {
+                let queue_error = {
                     let mut s = bus.lock();
-                    if s.control.pending_commands.len() < 32 {
+                    if !s.serial_online {
+                        Some((503, "射频节点串口离线，指令未下发"))
+                    } else if s.control.pending_commands.len() >= 32 {
+                        Some((429, "作动队列已满，请稍后重试"))
+                    } else {
                         s.control.pending_commands.push(format!("{}\n", cmd));
+                        s.events.push(
+                            "DEVICE_COMMAND",
+                            "INFO",
+                            &format!("管理员 [{}] 向设备 [{}] 下发白名单指令: {}", c.username(), dev_id, cmd),
+                            &format!("{{\"device_id\":\"{}\",\"command\":\"{}\"}}", json::escape(&dev_id), json::escape(&cmd)),
+                        );
+                        None
                     }
-                    s.events.push(
-                        "DEVICE_COMMAND",
-                        "INFO",
-                        &format!("管理员 [{}] 向设备 [{}] 下发白名单指令: {}", c.username(), dev_id, cmd),
-                        &format!("{{\"device_id\":\"{}\",\"command\":\"{}\"}}", json::escape(&dev_id), json::escape(&cmd)),
-                    );
+                };
+                if let Some((code, message)) = queue_error {
+                    send_json(st, code, &format!("{{\"success\":false,\"message\":\"{}\"}}", json::escape(message)));
+                    return;
                 }
                 bus.cv.notify_all();
                 send_json(
                     st,
                     200,
                     &format!(
-                        "{{\"success\":true,\"message\":\"{}\",\"device_id\":\"{}\",\"command\":\"{}\"}}",
-                        json::escape("指令已成功下发"),
+                        "{{\"success\":true,\"status\":\"queued\",\"message\":\"{}\",\"device_id\":\"{}\",\"command\":\"{}\"}}",
+                        json::escape("指令已加入发送队列"),
                         json::escape(&dev_id),
                         json::escape(&cmd)
                     ),
@@ -1159,25 +1168,38 @@ fn handle_post(
                     send_json(st, 400, "{\"success\":false,\"message\":\"Missing command\"}");
                     return;
                 }
-                {
+                if !crate::serial::is_command_allowed(&cmd) {
+                    send_json(st, 400, "{\"success\":false,\"message\":\"Command not permitted in whitelist\"}");
+                    return;
+                }
+                let queue_error = {
                     let mut s = bus.lock();
-                    if crate::serial::is_command_allowed(&cmd) && s.control.pending_commands.len() < 32 {
+                    if !s.serial_online {
+                        Some((503, "射频节点串口离线，指令未下发"))
+                    } else if s.control.pending_commands.len() >= 32 {
+                        Some((429, "作动队列已满，请稍后重试"))
+                    } else {
                         s.control.pending_commands.push(format!("{}\n", cmd));
+                        s.events.push(
+                            "SENSOR_ACTUATE",
+                            "INFO",
+                            &format!("管理员 [{}] 向生态设备 [{}] 发送作动指令: {}", c.username(), dev_id, cmd),
+                            "{}",
+                        );
+                        None
                     }
-                    s.events.push(
-                        "SENSOR_ACTUATE",
-                        "INFO",
-                        &format!("管理员 [{}] 向生态设备 [{}] 发送作动指令: {}", c.username(), dev_id, cmd),
-                        "{}",
-                    );
+                };
+                if let Some((code, message)) = queue_error {
+                    send_json(st, code, &format!("{{\"success\":false,\"message\":\"{}\"}}", json::escape(message)));
+                    return;
                 }
                 bus.cv.notify_all();
                 send_json(
                     st,
                     200,
                     &format!(
-                        "{{\"success\":true,\"message\":\"{}\",\"device_id\":\"{}\",\"command\":\"{}\"}}",
-                        json::escape(&format!("作动指令已下发: {}", cmd)),
+                        "{{\"success\":true,\"status\":\"queued\",\"message\":\"{}\",\"device_id\":\"{}\",\"command\":\"{}\"}}",
+                        json::escape(&format!("作动指令已加入发送队列: {}", cmd)),
                         json::escape(&dev_id),
                         json::escape(&cmd)
                     ),

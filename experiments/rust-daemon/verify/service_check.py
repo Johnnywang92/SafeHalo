@@ -193,6 +193,15 @@ def test_http(work):
         check("console status contract",
               status == 200 and {"state", "placement", "routine", "recent_events"} <= set(keys))
 
+        for path, payload in (
+            ("/api/devices/command", {"command": "BURST_RATE:100"}),
+            ("/api/sensors/actuate", {"device_id": "speaker_living", "command": "CHALLENGE_BEEP:1"}),
+        ):
+            status, body, _ = request("POST", base + path, {**payload, "command": "rm -rf /"}, headers=auth)
+            check(path + " rejects non-whitelisted command", status == 400 and body.get("success") is False)
+            status, body, _ = request("POST", base + path, payload, headers=auth)
+            check(path + " rejects offline serial", status == 503 and body.get("success") is False)
+
         status, body, _ = request("GET", base + "/api/users",
                                   headers={"Cookie": "safehalo_session=" + token})
         names = [u["username"] for u in body.get("users", [])] if isinstance(body, dict) else []
@@ -383,6 +392,92 @@ def read_pty(master, proc, deadline):
     return buf.decode("utf-8", "replace")
 
 
+def read_pty_until(master, needles, timeout):
+    buf = b""
+    deadline = time.time() + timeout
+    while time.time() < deadline and not all(n in buf for n in needles):
+        ready, _, _ = select.select([master], [], [], 0.1)
+        if ready:
+            try:
+                chunk = os.read(master, 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            buf += chunk
+    return buf
+
+
+def actuation_api(work):
+    master, slave = pty.openpty()
+    port = free_port()
+    store = work / "actuation_api"
+    proc = launch([
+        "--serial", os.ttyname(slave), "--baud", "921600",
+        "--http", f"127.0.0.1:{port}", "--data-dir", str(store / "data"),
+        "--storage-dir", str(store), "--run-secs", "30",
+    ])
+    base = f"http://127.0.0.1:{port}"
+    try:
+        if not check("actuation service starts", wait_port(port)):
+            return
+        status, body, _ = request("POST", base + "/api/auth/login",
+                                  {"username": "admin", "password": "admin123"})
+        check("actuation admin login", status == 200)
+        auth = {"Authorization": "Bearer " + body.get("token", "")}
+        status, _, _ = request("POST", base + "/api/auth/update_password",
+                               {"old_password": "admin123", "new_password": "Admin@2026x"}, headers=auth)
+        check("actuation forced password change", status == 200)
+        status, body, _ = request("POST", base + "/api/auth/login",
+                                  {"username": "admin", "password": "Admin@2026x"})
+        auth = {"Authorization": "Bearer " + body.get("token", "")}
+
+        deadline = time.time() + 5
+        connected = False
+        while time.time() < deadline:
+            status, body, _ = request("GET", base + "/api/events?since=0", headers=auth)
+            events = body.get("events", []) if isinstance(body, dict) else []
+            if any(e.get("type") == "SERIAL_CONNECTED" for e in events):
+                connected = True
+                break
+            time.sleep(0.05)
+        check("serial online before actuation", connected)
+
+        cases = (
+            ("/api/devices/command", {"command": "BURST_RATE:100"}, b"BURST_RATE:100\n"),
+            ("/api/sensors/actuate", {"device_id": "speaker_living", "command": "CHALLENGE_BEEP:1"}, b"CHALLENGE_BEEP:1\n"),
+        )
+        for path, payload, expected in cases:
+            status, body, _ = request("POST", base + path, payload, headers=auth)
+            check(path + " queues online command", status == 200
+                  and body.get("success") is True and body.get("status") == "queued")
+            written = read_pty_until(master, [expected], 5)
+            check(path + " writes serial command", expected in written, repr(written))
+
+        os.close(master)
+        master = None
+        os.close(slave)
+        slave = None
+        deadline = time.time() + 6
+        offline = False
+        while time.time() < deadline:
+            _, body, _ = request("GET", base + "/api/ha/status")
+            if body.get("human_state") == "ROUTER_OFFLINE":
+                offline = True
+                break
+            time.sleep(0.05)
+        check("serial disconnect observed", offline)
+        for path, payload, _ in cases:
+            status, body, _ = request("POST", base + path, payload, headers=auth)
+            check(path + " rejects disconnected serial", status == 503 and body.get("success") is False)
+    finally:
+        if master is not None:
+            os.close(master)
+        if slave is not None:
+            os.close(slave)
+        stop(proc)
+
+
 def serial_actuation(work, scenarios):
     lines = [l for l in open(scenarios / "object.txt", encoding="utf-8") if l.strip()]
     for enabled, want in ((True, True), (False, False)):
@@ -453,6 +548,7 @@ def main():
     test_http(work)
     test_security(work)
     alarm_replay(work)
+    actuation_api(work)
     serial_actuation(work, scenarios)
     serial_reconnect(work, scenarios)
 

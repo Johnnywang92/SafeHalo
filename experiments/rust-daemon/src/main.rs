@@ -348,7 +348,15 @@ fn drain_control(p: &mut Pipeline, bus: &Arc<Bus>, serial_out: Option<&mut File>
     if !pending_cmds.is_empty() {
         if let Some(f) = serial_out {
             for cmd in pending_cmds {
-                let _ = serial::write_command(f, &cmd);
+                if !serial::write_command(f, &cmd) {
+                    eprintln!("[serial] command write failed: {}", cmd.trim());
+                    bus.push_event(
+                        "DEVICE_COMMAND_FAILED",
+                        "WARN",
+                        &format!("串口写入失败: {}", cmd.trim()),
+                        "{}",
+                    );
+                }
             }
         }
     }
@@ -657,6 +665,7 @@ fn mark_router_offline(bus: &Arc<Bus>, why: &str) {
     {
         let mut s = bus.lock();
         s.state = "ROUTER_OFFLINE".into();
+        s.serial_online = false;
         s.events.push("ROUTER_OFFLINE", "WARN", why, "{}");
     }
     bus.cv.notify_all();
@@ -698,6 +707,7 @@ fn run_serial(
         {
             let mut s = bus.lock();
             s.state = "CALIBRATING".into();
+            s.serial_online = true;
             s.events.push(
                 "SERIAL_CONNECTED",
                 "INFO",
@@ -854,6 +864,7 @@ fn main() {
 
     let shared = Shared {
         state: "CALIBRATING".into(),
+        serial_online: false,
         is_pet: false,
         spr: 0.0,
         variance: 0.0,

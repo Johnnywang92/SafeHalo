@@ -454,6 +454,7 @@ pub struct Control {
 
 pub struct Shared {
     pub state: String,
+    pub serial_online: bool,
     pub is_pet: bool,
     pub spr: f64,
     pub variance: f64,
